@@ -139,7 +139,7 @@ export function AssetOperationDialog({
               <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-medium">Confirm asset tag</p>
+                    <p className="text-sm font-medium">Confirm printed asset tag</p>
                     <p className="text-xs text-muted-foreground">
                       Expected tag: {asset?.asset_tag}
                     </p>
@@ -153,7 +153,7 @@ export function AssetOperationDialog({
                     }}
                   >
                     <Camera className="mr-2 h-4 w-4" />
-                    Scan tag
+                    Read tag
                   </Button>
                 </div>
                 <AssetTagCameraScanner

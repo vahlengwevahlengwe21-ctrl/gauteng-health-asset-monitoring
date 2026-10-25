@@ -17,7 +17,7 @@ export function middleware(request: NextRequest) {
       );
       response.headers.set(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
       );
     }
   };
@@ -25,6 +25,12 @@ export function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/api/')) {
     const response = NextResponse.next();
     response.headers.set('Cache-Control', 'no-store');
+    applySecurityHeaders(response);
+    return response;
+  }
+
+  if (request.nextUrl.pathname.startsWith('/ocr/')) {
+    const response = NextResponse.next();
     applySecurityHeaders(response);
     return response;
   }

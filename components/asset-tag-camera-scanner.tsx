@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { Result } from '@zxing/library';
-import type { IScannerControls } from '@zxing/browser';
+import type { Worker } from 'tesseract.js';
 import { Button } from '@/components/ui/button';
-import { Camera, CameraOff } from 'lucide-react';
+import { CameraOff } from 'lucide-react';
 
 type AssetTagCameraScannerProps = {
   active: boolean;
@@ -20,8 +19,8 @@ function getCameraErrorMessage(error: unknown): string {
     return 'No camera was found on this device.';
   }
   return error instanceof Error
-    ? `Could not start the camera: ${error.message}`
-    : 'Could not start the camera.';
+    ? `Could not start text scanning: ${error.message}`
+    : 'Could not start text scanning.';
 }
 
 export function AssetTagCameraScanner({
@@ -30,10 +29,15 @@ export function AssetTagCameraScanner({
   onClose,
 }: AssetTagCameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const workerRef = useRef<Worker | null>(null);
   const onDetectedRef = useRef(onDetected);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [captureAttempt, setCaptureAttempt] = useState(0);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [statusMessage, setStatusMessage] = useState('Starting camera…');
+  const [readError, setReadError] = useState<string | null>(null);
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -43,9 +47,15 @@ export function AssetTagCameraScanner({
     if (!active) return;
 
     let disposed = false;
-    let controls: IScannerControls | undefined;
+    let stream: MediaStream | undefined;
+    let worker: Worker | undefined;
+    const video = videoRef.current;
+    workerRef.current = null;
     setCameraError(null);
+    setReadError(null);
     setCameraReady(false);
+    setSecondsRemaining(null);
+    setStatusMessage('Starting camera…');
 
     const startScanner = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -54,63 +64,42 @@ export function AssetTagCameraScanner({
       }
 
       try {
-        const [{ BrowserMultiFormatReader }, {
-          BarcodeFormat,
-          ChecksumException,
-          FormatException,
-          NotFoundException,
-        }] = await Promise.all([
-          import('@zxing/browser'),
-          import('@zxing/library'),
-        ]);
-        if (disposed || !videoRef.current) return;
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: 'environment' } },
+        });
+        if (disposed || !video) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
 
-        const reader = new BrowserMultiFormatReader();
-        reader.possibleFormats = [
-          BarcodeFormat.CODABAR,
-          BarcodeFormat.CODE_39,
-          BarcodeFormat.CODE_128,
-          BarcodeFormat.DATA_MATRIX,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.EAN_13,
-          BarcodeFormat.ITF,
-          BarcodeFormat.QR_CODE,
-          BarcodeFormat.UPC_A,
-          BarcodeFormat.UPC_E,
-        ];
+        video.srcObject = stream;
+        await video.play();
+        if (disposed) return;
 
-        const scannerControls = await reader.decodeFromConstraints(
+        setStatusMessage('Preparing on-device text recognition…');
+        const { createWorker, PSM } = await import('tesseract.js');
+        worker = await createWorker(
+          'eng',
+          1,
           {
-            audio: false,
-            video: {
-              facingMode: { ideal: 'environment' },
+            workerPath: '/ocr/worker.min.js',
+            corePath: '/ocr',
+            langPath: '/ocr/4.0.0_best_int',
+            workerBlobURL: true,
+            logger: ({ status }) => {
+              if (!disposed) setStatusMessage(`Preparing text reader: ${status}…`);
             },
-          },
-          videoRef.current,
-          (result: Result | undefined, error, callbackControls) => {
-            if (disposed) return;
-            if (result) {
-              callbackControls.stop();
-              onDetectedRef.current(result.getText());
-              return;
-            }
-            if (
-              error &&
-              !(error instanceof NotFoundException) &&
-              !(error instanceof ChecksumException) &&
-              !(error instanceof FormatException)
-            ) {
-              callbackControls.stop();
-              setCameraError(getCameraErrorMessage(error));
-            }
           }
         );
-        controls = scannerControls;
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
         if (disposed) {
-          scannerControls.stop();
-        } else {
-          setCameraReady(true);
+          await worker.terminate();
+          return;
         }
+        workerRef.current = worker;
+        setStatusMessage('Keep the printed tag centered and steady.');
+        setCameraReady(true);
       } catch (error) {
         if (!disposed) setCameraError(getCameraErrorMessage(error));
       }
@@ -119,9 +108,71 @@ export function AssetTagCameraScanner({
     void startScanner();
     return () => {
       disposed = true;
-      controls?.stop();
+      stream?.getTracks().forEach((track) => track.stop());
+      if (video) video.srcObject = null;
+      workerRef.current = null;
+      if (worker) void worker.terminate();
     };
   }, [active, retryCount]);
+
+  useEffect(() => {
+    if (!active || !cameraReady) return;
+
+    let disposed = false;
+    let seconds = 10;
+    setSecondsRemaining(seconds);
+    const intervalId = window.setInterval(() => {
+      seconds -= 1;
+      setSecondsRemaining(seconds);
+      if (seconds > 0) return;
+
+      window.clearInterval(intervalId);
+      const video = videoRef.current;
+      const worker = workerRef.current;
+      if (!video || !worker || video.videoWidth === 0 || video.videoHeight === 0) {
+        setReadError('The camera image was not ready. Keep the tag visible and try again.');
+        return;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        setReadError('Could not capture the camera image. Try again.');
+        return;
+      }
+
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      setSecondsRemaining(null);
+      setStatusMessage('Reading the captured image…');
+      void worker
+        .recognize(canvas)
+        .then(({ data }) => {
+          if (disposed) return;
+          const text = data.text
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .join(' ');
+          if (!text) {
+            setReadError('No text was clear enough to read. Move closer, improve the lighting, and try again.');
+            return;
+          }
+          onDetectedRef.current(text);
+        })
+        .catch((error: unknown) => {
+          if (disposed) return;
+          console.error('Could not recognize text in the camera image:', error);
+          setReadError('Could not read the captured image. Keep the tag centered and try again.');
+        });
+    }, 1000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [active, cameraReady, captureAttempt]);
 
   if (!active) return null;
 
@@ -134,18 +185,28 @@ export function AssetTagCameraScanner({
         </div>
       ) : (
         <>
-          <video
-            ref={videoRef}
-            className="max-h-64 w-full rounded-md bg-black object-contain"
-            aria-label="Live camera view for scanning an asset barcode"
-            autoPlay
-            muted
-            playsInline
-          />
-          <p className="text-sm text-muted-foreground" role="status">
-            {cameraReady
-              ? 'Point the rear camera at the asset barcode or QR code.'
-              : 'Starting camera…'}
+          <div className="relative overflow-hidden rounded-md bg-black">
+            <video
+              ref={videoRef}
+              className="max-h-64 w-full object-contain"
+              aria-label="Live camera view for reading printed asset tag text"
+              autoPlay
+              muted
+              playsInline
+            />
+            {cameraReady && secondsRemaining !== null && (
+              <div
+                className="pointer-events-none absolute inset-x-[8%] top-1/2 h-16 -translate-y-1/2 rounded-md border-2 border-white/80 shadow-[0_0_0_999px_rgba(0,0,0,0.2)]"
+                aria-hidden="true"
+              />
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+            {readError
+              ? readError
+              : cameraReady && secondsRemaining !== null
+                ? `Hold the tag in the guide and keep steady. Capturing in ${secondsRemaining} seconds…`
+                : statusMessage}
           </p>
         </>
       )}
@@ -158,6 +219,19 @@ export function AssetTagCameraScanner({
             onClick={() => setRetryCount((count) => count + 1)}
           >
             Try again
+          </Button>
+        )}
+        {readError && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setReadError(null);
+              setCaptureAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Capture again
           </Button>
         )}
         <Button type="button" variant="outline" size="sm" onClick={onClose}>

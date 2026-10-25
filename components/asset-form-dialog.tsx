@@ -248,7 +248,7 @@ export function AssetFormDialog({
                 <Input
                   id="asset_tag"
                   className="min-w-0"
-                  placeholder="Type or scan asset tag, e.g. TDHS-00000"
+                  placeholder="Type or photograph printed asset tag, e.g. TDHS-00000"
                   value={form.asset_tag}
                   onChange={(e) => {
                     update('asset_tag', e.target.value);
@@ -263,14 +263,14 @@ export function AssetFormDialog({
                   type="button"
                   variant="outline"
                   className="shrink-0"
-                  aria-label="Scan asset tag with camera"
+                  aria-label="Read printed asset tag with camera"
                   onClick={() => {
                     setAssetTagScanNotice(null);
                     setScanningAssetTag(true);
                   }}
                 >
                   <Camera className="mr-2 h-4 w-4" />
-                  Scan
+                  Read tag
                 </Button>
               </div>
               <AssetTagCameraScanner
@@ -278,12 +278,12 @@ export function AssetFormDialog({
                 onDetected={(value) => {
                   const assetTag = value.trim();
                   if (!assetTag) {
-                    setAssetTagScanNotice('The code was empty. Try scanning it again.');
+                    setAssetTagScanNotice('No printed text was detected. Try capturing it again.');
                     setScanningAssetTag(false);
                     return;
                   }
                   update('asset_tag', assetTag);
-                  setAssetTagScanNotice('Code scanned. Verify the asset tag before saving.');
+                  setAssetTagScanNotice('Printed text copied. Verify the asset tag before saving.');
                   setScanningAssetTag(false);
                 }}
                 onClose={() => setScanningAssetTag(false)}
@@ -294,7 +294,7 @@ export function AssetFormDialog({
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Type the tag, use a keyboard-mode scanner, or scan its barcode/QR code with your device camera. Check the value before saving.
+                Type the tag or use the camera to photograph the printed text. Keep the tag centered and steady for 10 seconds; check the copied text before saving.
               </p>
             </div>
             <div className="space-y-2">

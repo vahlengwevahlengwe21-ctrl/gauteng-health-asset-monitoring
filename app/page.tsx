@@ -537,11 +537,11 @@ export default function Home() {
                   type="button"
                   variant="outline"
                   className="h-10 shrink-0 gap-2 px-3"
-                  aria-label="Scan asset tag to search"
+                  aria-label="Read printed asset tag to search"
                   onClick={() => setSearchCameraOpen(true)}
                 >
                   <Camera className="h-4 w-4" />
-                  Scan
+                  Read tag
                 </Button>
               </div>
               <AssetTagCameraScanner
