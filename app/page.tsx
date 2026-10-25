@@ -33,6 +33,7 @@ import { fetchAssets, createAsset, updateAsset, deleteAsset } from '@/lib/assets
 import { fetchFacilities } from '@/lib/facilities';
 import { createDisposalRequest } from '@/lib/disposals';
 import { createDecommissionRequest } from '@/lib/decommission-requests';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import { createLostAssetReport } from '@/lib/lost-assets';
 import { createMaintenanceRecord } from '@/lib/maintenance-records';
 import { createAssetOperation } from '@/lib/asset-operations';
@@ -102,7 +103,7 @@ export default function Home() {
       ? GAUTENG_SUB_DISTRICTS[filterDistrict] ?? []
       : [];
   const visibleDistricts =
-    currentUser?.role === 'super_administrator'
+    currentUser?.role && isSystemWideAdministrator(currentUser.role)
       ? GAUTENG_DISTRICTS
       : currentUser?.district
         ? [currentUser.district]
@@ -208,12 +209,12 @@ export default function Home() {
           setFacilities(facilityData);
           setCurrentUser(user);
           if (
-            user.role !== 'super_administrator' &&
+            !isSystemWideAdministrator(user.role) &&
             user.district
           ) {
             setFilterDistrict(user.district);
           }
-          if (user.role !== 'super_administrator' && !user.district) {
+          if (!isSystemWideAdministrator(user.role) && !user.district) {
             setError(
               'Your account has no district assigned. Ask the Super Administrator to assign one in User management.'
             );
@@ -234,7 +235,7 @@ export default function Home() {
     };
   }, []);
   const hasFullOperationalAccess =
-    currentUser?.role === 'super_administrator' ||
+    (currentUser?.role && isSystemWideAdministrator(currentUser.role)) ||
     currentUser?.role === 'asset_manager' ||
     currentUser?.role === 'supervisor' ||
     currentUser?.role === 'chief_director';
@@ -245,11 +246,11 @@ export default function Home() {
   const canRequestDisposal = canManageAssets;
   const canReviewDisposal = hasFullOperationalAccess;
   const canReviewLostReports =
-    currentUser?.role === 'super_administrator' ||
+    (currentUser?.role && isSystemWideAdministrator(currentUser.role)) ||
     currentUser?.role === 'asset_manager' ||
     currentUser?.role === 'supervisor';
   const canReviewDecommissionRequests =
-    currentUser?.role === 'super_administrator' ||
+    (currentUser?.role && isSystemWideAdministrator(currentUser.role)) ||
     currentUser?.role === 'asset_manager' ||
     currentUser?.role === 'supervisor' ||
     currentUser?.role === 'chief_director';
@@ -362,7 +363,7 @@ export default function Home() {
     setSearch('');
     setDebouncedSearch('');
     setFilterDistrict(
-      currentUser?.role === 'super_administrator'
+      currentUser?.role && isSystemWideAdministrator(currentUser.role)
         ? 'all'
         : currentUser?.district ?? 'all'
     );
@@ -458,7 +459,7 @@ export default function Home() {
               Asset Register
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {currentUser?.role === 'super_administrator'
+              {currentUser?.role && isSystemWideAdministrator(currentUser.role)
                 ? 'Track and manage health facility assets across Gauteng province.'
                 : 'Track and manage health facility assets in your assigned district.'}
             </p>
@@ -582,7 +583,7 @@ export default function Home() {
                   <SelectValue placeholder="Assigned district" />
                 </SelectTrigger>
                 <SelectContent>
-                  {currentUser?.role === 'super_administrator' && (
+                  {currentUser?.role && isSystemWideAdministrator(currentUser.role) && (
                     <SelectItem value="all">All districts</SelectItem>
                   )}
                   {visibleDistricts.map((d) => (
@@ -855,7 +856,7 @@ export default function Home() {
         editingAsset={editingAsset}
         facilities={facilities}
         assignedDistrict={
-          currentUser?.role === 'super_administrator'
+          currentUser?.role && isSystemWideAdministrator(currentUser.role)
             ? null
             : currentUser?.district
         }

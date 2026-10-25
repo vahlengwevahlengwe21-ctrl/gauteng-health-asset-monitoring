@@ -1,5 +1,6 @@
 export type AppRole =
   | 'super_administrator'
+  | 'system_administrator'
   | 'asset_manager'
   | 'supervisor'
   | 'admin_clerk'
@@ -7,6 +8,7 @@ export type AppRole =
 
 export const APP_ROLES: AppRole[] = [
   'super_administrator',
+  'system_administrator',
   'asset_manager',
   'supervisor',
   'admin_clerk',
@@ -21,6 +23,11 @@ export const ROLE_DETAILS: Record<
     label: 'Super Administrator',
     description:
       'Full system access across every district, including user accounts, assets, and disposal actions.',
+  },
+  system_administrator: {
+    label: 'System Administrator',
+    description:
+      'Full system access across every district and operational feature. Can manage user accounts, but cannot create or assign the protected Super Administrator role.',
   },
   asset_manager: {
     label: 'Asset Manager',
@@ -43,3 +50,7 @@ export const ROLE_DETAILS: Record<
       'Full operational access within the assigned district: register, update, and remove eligible assets, and submit or review disposal requests. Cannot manage user accounts.',
   },
 };
+
+export function isSystemWideAdministrator(role: AppRole): boolean {
+  return role === 'super_administrator' || role === 'system_administrator';
+}

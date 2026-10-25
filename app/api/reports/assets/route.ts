@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { RowDataPacket } from 'mysql2';
 import { hasDistrictAssignment, requireUser } from '@/lib/auth';
 import { getDbPool } from '@/lib/db';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import {
   GAUTENG_DISTRICTS,
   GAUTENG_SUB_DISTRICTS,
@@ -69,7 +70,7 @@ export async function GET(request: Request) {
   const facilityName = (params.get('facilityName') ?? '').trim();
   const facilityDistrict = params.get('facilityDistrict') ?? '';
   const facilitySubDistrict = params.get('facilitySubDistrict') ?? '';
-  const isSuperAdministrator = auth.user.role === 'super_administrator';
+  const isSuperAdministrator = isSystemWideAdministrator(auth.user.role);
   const assignedDistrict = isSuperAdministrator ? null : auth.user.district;
   const district = assignedDistrict ?? requestedDistrict;
 

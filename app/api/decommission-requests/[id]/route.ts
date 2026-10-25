@@ -14,6 +14,7 @@ import {
   parseEvidenceRequest,
 } from '@/lib/workflow-evidence';
 import type { AssetDecommissionRequest, HealthAsset } from '@/lib/types';
+import { isSystemWideAdministrator } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +75,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
   const districtScope =
-    auth.user.role === 'super_administrator' ? null : auth.user.district;
+    isSystemWideAdministrator(auth.user.role) ? null : auth.user.district;
   const connection = await getDbPool().getConnection();
   try {
     await connection.beginTransaction();

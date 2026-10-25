@@ -12,6 +12,7 @@ import { recordAssetAudit } from '@/lib/asset-audit';
 import { parseAssetFormData } from '@/lib/asset-validation';
 import { createAssetSearchFilter } from '@/lib/asset-search.mjs';
 import { getDbPool } from '@/lib/db';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import { resolveFacilityName } from '@/lib/facility-name';
 import {
   ASSET_CONDITIONS,
@@ -55,8 +56,7 @@ export async function GET(request: Request) {
     const facilityName = (params.get('facilityName') ?? '').trim();
     const facilityDistrict = params.get('facilityDistrict') ?? '';
     const facilitySubDistrict = params.get('facilitySubDistrict') ?? '';
-    const isSuperAdministrator =
-      auth.user.role === 'super_administrator';
+    const isSuperAdministrator = isSystemWideAdministrator(auth.user.role);
     const scopedDistrict = isSuperAdministrator ? null : auth.user.district;
 
     if (

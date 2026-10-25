@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { RowDataPacket } from 'mysql2';
 import { hasDistrictAssignment, requireUser } from '@/lib/auth';
 import { getDbPool } from '@/lib/db';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import type { FacilityDirectoryEntry } from '@/lib/types';
 import { inferFacilitySubDistrict } from '@/lib/facility-sub-district';
 
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
     }
     const pool = getDbPool();
     const districtScope =
-      auth.user.role === 'super_administrator' ? null : auth.user.district;
+      isSystemWideAdministrator(auth.user.role) ? null : auth.user.district;
     const directorySql = `SELECT
         f.id, f.facility_name, f.facility_type, f.district, f.sub_district,
         f.locality, f.street_address, f.operator_name, f.source_name

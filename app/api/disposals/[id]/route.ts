@@ -6,6 +6,7 @@ import {
   requireUser,
 } from '@/lib/auth';
 import { getDbPool } from '@/lib/db';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import {
   insertWorkflowEvidence,
   parseEvidenceRequest,
@@ -77,7 +78,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
   const districtScope =
-    auth.user.role === 'super_administrator' ? null : auth.user.district;
+    isSystemWideAdministrator(auth.user.role) ? null : auth.user.district;
 
   const connection = await getDbPool().getConnection();
   try {
@@ -119,7 +120,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       disposal.requester_role === 'admin_clerk' &&
       auth.user.role !== 'supervisor' &&
       auth.user.role !== 'asset_manager' &&
-      auth.user.role !== 'super_administrator'
+      !isSystemWideAdministrator(auth.user.role)
     ) {
       await connection.rollback();
       return NextResponse.json(

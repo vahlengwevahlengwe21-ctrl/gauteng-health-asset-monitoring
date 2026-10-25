@@ -10,6 +10,7 @@ import {
 } from '@/lib/auth';
 import { recordAssetAudit } from '@/lib/asset-audit';
 import { getDbPool } from '@/lib/db';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import { parseEvidenceRequest } from '@/lib/workflow-evidence';
 import type {
   AssetLifespanExtensionData,
@@ -112,7 +113,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const district = auth.user.role === 'super_administrator'
+    const district = isSystemWideAdministrator(auth.user.role)
       ? null
       : auth.user.district;
     const sql = historyTable(type);

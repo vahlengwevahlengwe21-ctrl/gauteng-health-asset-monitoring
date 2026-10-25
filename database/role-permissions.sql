@@ -7,6 +7,7 @@ ALTER TABLE app_users
     'disposal_approver',
     'administrator',
     'super_administrator',
+    'system_administrator',
     'supervisor',
     'admin_clerk',
     'chief_director'
@@ -24,6 +25,7 @@ WHERE role IN ('administrator', 'disposal_officer', 'disposal_approver');
 ALTER TABLE app_users
   MODIFY role ENUM(
     'super_administrator',
+    'system_administrator',
     'asset_manager',
     'supervisor',
     'admin_clerk',

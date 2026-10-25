@@ -27,6 +27,7 @@ try {
       'disposal_approver',
       'administrator',
       'super_administrator',
+      'system_administrator',
       'supervisor',
       'admin_clerk',
       'chief_director'
@@ -41,6 +42,7 @@ try {
       WHERE role IN ('administrator', 'disposal_officer', 'disposal_approver')`,
     `ALTER TABLE app_users MODIFY role ENUM(
       'super_administrator',
+      'system_administrator',
       'asset_manager',
       'supervisor',
       'admin_clerk',
@@ -50,7 +52,7 @@ try {
   for (const statement of migration) {
     await connection.query(statement);
   }
-  console.log('User roles are ready for the current permission model.');
+  console.log('System Administrator role is ready; Super Administrator remains protected.');
 } catch (error) {
   console.error(`Role permission migration failed: ${error.message}`);
   process.exitCode = 1;

@@ -54,11 +54,15 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     !('district' in update) ||
     typeof update.role !== 'string' ||
     typeof update.is_active !== 'boolean' ||
-    typeof update.district !== 'string' ||
+    (typeof update.district !== 'string' && update.district !== null) ||
     !APP_ROLES.includes(update.role as AppRole) ||
-    !GAUTENG_DISTRICTS.includes(
-      update.district as (typeof GAUTENG_DISTRICTS)[number]
-    ) ||
+    (update.role === 'system_administrator'
+      ? update.district !== null
+      : typeof update.district !== 'string' ||
+        !GAUTENG_DISTRICTS.includes(
+          update.district as (typeof GAUTENG_DISTRICTS)[number]
+        )) ||
+    update.role === 'super_administrator' ||
     (profileFieldCount !== 0 &&
       (profileFieldCount !== profileFields.length || !profile))
   ) {
@@ -66,7 +70,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
   const nextRole = update.role as AppRole;
   const nextActive = update.is_active as boolean;
-  const nextDistrict = update.district as string;
+  const nextDistrict = update.district as string | null;
   if (id === auth.user.id && !nextActive) {
     return NextResponse.json({ error: 'You cannot deactivate your own account.' }, { status: 400 });
   }

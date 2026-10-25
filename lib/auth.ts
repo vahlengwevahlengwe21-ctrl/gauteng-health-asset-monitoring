@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import type { RowDataPacket } from 'mysql2';
 import { NextResponse } from 'next/server';
 import { getDbPool } from './db';
-import { APP_ROLES, type AppRole } from './roles';
+import { APP_ROLES, isSystemWideAdministrator, type AppRole } from './roles';
 import { SESSION_COOKIE } from './session-constants';
 import { GAUTENG_DISTRICTS } from './types';
 
@@ -29,17 +29,15 @@ export type AuthenticatedUser = {
 };
 
 export function hasDistrictAssignment(user: AuthenticatedUser): boolean {
-  return (
-    user.role === 'super_administrator' ||
-    GAUTENG_DISTRICTS.some((district) => district === user.district)
-  );
+  return isSystemWideAdministrator(user.role) ||
+    GAUTENG_DISTRICTS.some((district) => district === user.district);
 }
 
 export function canAccessDistrict(
   user: AuthenticatedUser,
   district: string
 ): boolean {
-  return user.role === 'super_administrator' || user.district === district;
+  return isSystemWideAdministrator(user.role) || user.district === district;
 }
 
 type SessionRow = AuthenticatedUser & {
@@ -214,7 +212,7 @@ export function hasRole(
   user: AuthenticatedUser,
   ...roles: AppRole[]
 ): boolean {
-  return user.role === 'super_administrator' || roles.includes(user.role);
+  return isSystemWideAdministrator(user.role) || roles.includes(user.role);
 }
 
 export async function requireUser(

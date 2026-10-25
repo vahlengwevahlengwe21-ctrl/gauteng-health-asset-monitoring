@@ -9,6 +9,7 @@ import {
   requireUser,
 } from '@/lib/auth';
 import { getDbPool } from '@/lib/db';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import {
   insertWorkflowEvidence,
   parseEvidenceRequest,
@@ -113,7 +114,7 @@ export async function GET(request: Request) {
   }
   try {
     const districtScope =
-      auth.user.role === 'super_administrator' ? null : auth.user.district;
+      isSystemWideAdministrator(auth.user.role) ? null : auth.user.district;
     const selectedDistrict = districtScope ?? district;
     const [disposals] = await getDbPool().execute<DisposalDirectoryRow[]>(
       `SELECT d.*, a.asset_tag, a.asset_name,

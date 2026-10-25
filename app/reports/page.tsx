@@ -27,6 +27,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Header } from '@/components/header';
+import { isSystemWideAdministrator } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
@@ -155,7 +156,7 @@ export default function AssetReportsPage() {
         if (cancelled) return;
         setUser(result.user);
         setFacilities(facilityEntries);
-        if (result.user.role !== 'super_administrator' && result.user.district) {
+        if (!isSystemWideAdministrator(result.user.role) && result.user.district) {
           setDistrict(result.user.district);
         }
       })
@@ -374,18 +375,18 @@ export default function AssetReportsPage() {
                 setSubDistrict('all');
                 setFacilityId('all');
               }}
-              disabled={initializing || user?.role !== 'super_administrator'}
+              disabled={initializing || !user || !isSystemWideAdministrator(user.role)}
             >
               <SelectTrigger aria-label="Report district">
                 <SelectValue placeholder="Select district" />
               </SelectTrigger>
               <SelectContent>
-                {user?.role === 'super_administrator' && (
+                {user && isSystemWideAdministrator(user.role) && (
                   <SelectItem value="all">All Gauteng districts</SelectItem>
                 )}
                 {GAUTENG_DISTRICTS.filter(
                   (entry) =>
-                    user?.role === 'super_administrator' ||
+                    (user && isSystemWideAdministrator(user.role)) ||
                     entry === user?.district
                 ).map((entry) => (
                   <SelectItem key={entry} value={entry}>

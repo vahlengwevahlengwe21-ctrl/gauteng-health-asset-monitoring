@@ -35,7 +35,9 @@ export async function GET(request: Request) {
         contact_number, district,
         role, is_active, is_protected, failed_login_attempts,
         (locked_until IS NOT NULL) AS is_locked, created_at
-      FROM app_users WHERE is_protected = FALSE ORDER BY display_name`
+      FROM app_users
+      WHERE is_protected = FALSE AND role <> 'super_administrator'
+      ORDER BY display_name`
     );
     return NextResponse.json(users);
   } catch (error) {
@@ -67,17 +69,21 @@ export async function POST(request: Request) {
     typeof body.persal_number !== 'string' ||
     typeof body.password !== 'string' ||
     typeof body.role !== 'string' ||
-    typeof body.district !== 'string' ||
+    (typeof body.district !== 'string' && body.district !== null) ||
     !/^\d{8}$/.test(body.persal_number) ||
     body.password.length < 12 ||
     body.password.length > 128 ||
     !APP_ROLES.includes(body.role as AppRole) ||
-    !GAUTENG_DISTRICTS.includes(
-      body.district as (typeof GAUTENG_DISTRICTS)[number]
-    )
+    (body.role === 'system_administrator'
+      ? body.district !== null
+      : typeof body.district !== 'string' ||
+        !GAUTENG_DISTRICTS.includes(
+          body.district as (typeof GAUTENG_DISTRICTS)[number]
+        )) ||
+    body.role === 'super_administrator'
   ) {
     return NextResponse.json(
-      { error: 'Complete every required field with a valid name, surname, district, 8-digit PERSAL number, password, and role.' },
+      { error: 'Complete every required field with a valid name, surname, district when required, 8-digit PERSAL number, password, and role. Super Administrator accounts cannot be created here.' },
       { status: 400 }
     );
   }
@@ -88,16 +94,6 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (
-    body.role === 'super_administrator' &&
-    auth.user.role !== 'super_administrator'
-  ) {
-    return NextResponse.json(
-      { error: 'Only a Super Administrator can create another Super Administrator.' },
-      { status: 403 }
-    );
-  }
-
   try {
     await getDbPool().execute(
       `INSERT INTO app_users (

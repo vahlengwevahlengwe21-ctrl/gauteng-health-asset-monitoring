@@ -7,7 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { APP_ROLES, ROLE_DETAILS } from '@/lib/roles';
+import {
+  APP_ROLES,
+  isSystemWideAdministrator,
+  ROLE_DETAILS,
+} from '@/lib/roles';
 import { GAUTENG_DISTRICTS } from '@/lib/types';
 import {
   Select,
@@ -35,7 +39,7 @@ type ManagedUser = {
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [isSuperAdministrator, setIsSuperAdministrator] = useState(false);
+  const [canManageSystemUsers, setCanManageSystemUsers] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [surname, setSurname] = useState('');
   const [persalNumber, setPersalNumber] = useState('');
@@ -56,6 +60,11 @@ export default function UsersPage() {
   } | null>(null);
   const [resettingPassword, setResettingPassword] = useState(false);
   const [unlockingUserId, setUnlockingUserId] = useState<string | null>(null);
+  const [pendingRoleChange, setPendingRoleChange] = useState<{
+    userId: string;
+    role: AppRole;
+  } | null>(null);
+  const [pendingRoleDistrict, setPendingRoleDistrict] = useState('');
   const [profileDraft, setProfileDraft] = useState({
     display_name: '',
     surname: '',
@@ -98,9 +107,7 @@ export default function UsersPage() {
         const result = (await response.json()) as {
           user: { role: AppRole };
         };
-        setIsSuperAdministrator(
-          result.user.role === 'super_administrator'
-        );
+        setCanManageSystemUsers(isSystemWideAdministrator(result.user.role));
       })
       .catch((err: unknown) => {
         setError(
@@ -124,9 +131,10 @@ export default function UsersPage() {
       !contactNumber.trim() ||
       password.length < 12 ||
       !role ||
-      !GAUTENG_DISTRICTS.includes(
-        district as (typeof GAUTENG_DISTRICTS)[number]
-      )
+      (role !== 'system_administrator' &&
+        !GAUTENG_DISTRICTS.includes(
+          district as (typeof GAUTENG_DISTRICTS)[number]
+        ))
     ) {
       setError('Complete every required field before creating the account.');
       return;
@@ -144,7 +152,7 @@ export default function UsersPage() {
           contact_number: contactNumber,
           password,
           role,
-          district,
+          district: role === 'system_administrator' ? null : district,
         }),
       });
       const result = (await response.json()) as { error?: string };
@@ -182,7 +190,7 @@ export default function UsersPage() {
       profileDraft.surname.trim().length < 2 ||
       !profileDraft.email.trim() ||
       !profileDraft.contact_number.trim() ||
-      !user.district
+      (!user.district && user.role !== 'system_administrator')
     ) {
       setError('Complete the profile fields and assign a district before saving.');
       return;
@@ -198,7 +206,7 @@ export default function UsersPage() {
           body: JSON.stringify({
             role: user.role,
             is_active: Boolean(user.is_active),
-            district: user.district,
+            district: user.role === 'system_administrator' ? null : user.district,
             ...profileDraft,
           }),
         }
@@ -223,11 +231,14 @@ export default function UsersPage() {
     isActive: boolean,
     nextDistrict: string | null = user.district
   ) => {
+    const assignedDistrict =
+      nextRole === 'system_administrator' ? null : nextDistrict;
     if (
-      !nextDistrict ||
-      !GAUTENG_DISTRICTS.includes(
-        nextDistrict as (typeof GAUTENG_DISTRICTS)[number]
-      )
+      nextRole !== 'system_administrator' &&
+      (!assignedDistrict ||
+        !GAUTENG_DISTRICTS.includes(
+          assignedDistrict as (typeof GAUTENG_DISTRICTS)[number]
+        ))
     ) {
       setError('Assign a district to this account before changing its access.');
       return;
@@ -241,7 +252,7 @@ export default function UsersPage() {
         body: JSON.stringify({
           role: nextRole,
           is_active: isActive,
-          district: nextDistrict,
+          district: assignedDistrict,
         }),
       });
       const result = (await response.json()) as { error?: string };
@@ -321,6 +332,21 @@ export default function UsersPage() {
       setUnlockingUserId(null);
     }
   };
+
+  const districtOrder = new Map<string, number>(
+    GAUTENG_DISTRICTS.map((district, index) => [district, index])
+  );
+  const districtGroups = Object.entries(
+    users.reduce<Record<string, ManagedUser[]>>((groups, user) => {
+      const district = user.district || 'Not assigned';
+      (groups[district] ??= []).push(user);
+      return groups;
+    }, {})
+  ).sort(([first], [second]) => {
+    const firstOrder = districtOrder.get(first) ?? Number.MAX_SAFE_INTEGER;
+    const secondOrder = districtOrder.get(second) ?? Number.MAX_SAFE_INTEGER;
+    return firstOrder - secondOrder || first.localeCompare(second);
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -424,17 +450,18 @@ export default function UsersPage() {
               <Label htmlFor="user_role">System role and permissions</Label>
               <Select
                 value={role}
-                onValueChange={(value) => setRole(value as AppRole)}
-                disabled={!isSuperAdministrator}
+                onValueChange={(value) => {
+                  setRole(value as AppRole);
+                  if (value === 'system_administrator') setDistrict('');
+                }}
+                disabled={!canManageSystemUsers}
               >
                 <SelectTrigger id="user_role" aria-required="true">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
                   {APP_ROLES.filter(
-                    (item) =>
-                      item !== 'super_administrator' ||
-                      isSuperAdministrator
+                    (item) => item !== 'super_administrator'
                   ).map((item) => (
                     <SelectItem key={item} value={item}>
                       {ROLE_DETAILS[item].label}
@@ -449,7 +476,7 @@ export default function UsersPage() {
                   {role ? ROLE_DETAILS[role].description : 'Select a role to view its permissions.'}
               </p>
             </div>
-            <div className="space-y-2">
+            {role !== 'system_administrator' && <div className="space-y-2">
               <Label htmlFor="user_district">District</Label>
               <Select value={district} onValueChange={setDistrict}>
                   <SelectTrigger id="user_district" aria-required="true">
@@ -463,11 +490,11 @@ export default function UsersPage() {
                     ))}
                   </SelectContent>
               </Select>
-            </div>
+            </div>}
             <div className="sm:col-span-2">
               <Button
                 type="submit"
-                disabled={saving || !isSuperAdministrator}
+                disabled={saving || !canManageSystemUsers}
               >
                 {saving ? 'Creating…' : 'Create account'}
               </Button>
@@ -482,8 +509,17 @@ export default function UsersPage() {
           {loading ? (
             <p className="p-5 text-sm text-muted-foreground">Loading users…</p>
           ) : (
-            <div className="divide-y divide-border">
-              {users.map((user) => (
+            <div>
+              {districtGroups.map(([districtName, districtUsers]) => (
+                <section key={districtName} className="border-b border-border last:border-b-0">
+                  <div className="flex items-center justify-between bg-muted/40 px-5 py-3">
+                    <h4 className="font-semibold text-foreground">{districtName}</h4>
+                    <span className="text-xs text-muted-foreground">
+                      {districtUsers.length} {districtUsers.length === 1 ? 'user' : 'users'}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {districtUsers.map((user) => (
                 <div
                   key={user.id}
                   className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
@@ -517,7 +553,7 @@ export default function UsersPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    {isSuperAdministrator && Boolean(user.is_locked) && (
+                    {canManageSystemUsers && Boolean(user.is_locked) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -527,7 +563,7 @@ export default function UsersPage() {
                         {unlockingUserId === user.id ? 'Unlocking…' : 'Unlock account'}
                       </Button>
                     )}
-                    {isSuperAdministrator && (
+                    {canManageSystemUsers && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -554,47 +590,56 @@ export default function UsersPage() {
                     </Button>
                     <Select
                       value={user.role}
-                      onValueChange={(nextRole) =>
-                        updateUser(
-                          user,
-                          nextRole as AppRole,
-                          Boolean(user.is_active)
-                        )
-                      }
+                      onValueChange={(value) => {
+                        const nextRole = value as AppRole;
+                        if (
+                          user.role === 'system_administrator' &&
+                          nextRole !== 'system_administrator'
+                        ) {
+                          setPendingRoleChange({ userId: user.id, role: nextRole });
+                          setPendingRoleDistrict('');
+                        } else {
+                          updateUser(user, nextRole, Boolean(user.is_active));
+                        }
+                      }}
                     >
                       <SelectTrigger className="w-48">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {APP_ROLES.map((item) => (
+                        {APP_ROLES.filter(
+                          (item) => item !== 'super_administrator'
+                        ).map((item) => (
                           <SelectItem key={item} value={item}>
                             {ROLE_DETAILS[item].label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Select
-                      value={user.district ?? undefined}
-                      onValueChange={(nextDistrict) =>
-                        updateUser(
-                          user,
-                          user.role,
-                          Boolean(user.is_active),
-                          nextDistrict
-                        )
-                      }
-                    >
-                      <SelectTrigger className="w-48" aria-label="Assign district">
-                        <SelectValue placeholder="Assign district" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {GAUTENG_DISTRICTS.map((item) => (
-                          <SelectItem key={item} value={item}>
-                            {item}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {user.role !== 'system_administrator' && (
+                      <Select
+                        value={user.district ?? undefined}
+                        onValueChange={(nextDistrict) =>
+                          updateUser(
+                            user,
+                            user.role,
+                            Boolean(user.is_active),
+                            nextDistrict
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-48" aria-label="Assign district">
+                          <SelectValue placeholder="Assign district" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {GAUTENG_DISTRICTS.map((item) => (
+                            <SelectItem key={item} value={item}>
+                              {item}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     <Button
                       variant={user.is_active ? 'outline' : 'destructive'}
                       size="sm"
@@ -605,6 +650,53 @@ export default function UsersPage() {
                       {user.is_active ? 'Deactivate' : 'Reactivate'}
                     </Button>
                   </div>
+                  {pendingRoleChange?.userId === user.id && (
+                    <div className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-muted/20 p-4">
+                      <div className="min-w-56 space-y-2">
+                        <Label htmlFor={`role-district-${user.id}`}>
+                          Assign district for {ROLE_DETAILS[pendingRoleChange.role].label}
+                        </Label>
+                        <Select
+                          value={pendingRoleDistrict}
+                          onValueChange={setPendingRoleDistrict}
+                        >
+                          <SelectTrigger id={`role-district-${user.id}`}>
+                            <SelectValue placeholder="Select a district" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {GAUTENG_DISTRICTS.map((item) => (
+                              <SelectItem key={item} value={item}>
+                                {item}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        type="button"
+                        disabled={!pendingRoleDistrict}
+                        onClick={async () => {
+                          await updateUser(
+                            user,
+                            pendingRoleChange.role,
+                            Boolean(user.is_active),
+                            pendingRoleDistrict
+                          );
+                          setPendingRoleChange(null);
+                          setPendingRoleDistrict('');
+                        }}
+                      >
+                        Save role and district
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setPendingRoleChange(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
                   {temporaryPassword?.userId === user.id && (
                     <div className="grid gap-3 rounded-md border border-warning/40 bg-warning/10 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end">
                       <div className="space-y-2">
@@ -711,6 +803,9 @@ export default function UsersPage() {
                     </div>
                   )}
                 </div>
+                    ))}
+                  </div>
+                </section>
               ))}
               {users.length === 0 && (
                 <p className="p-5 text-sm text-muted-foreground">

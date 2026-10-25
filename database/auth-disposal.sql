@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   is_protected BOOLEAN NOT NULL DEFAULT FALSE,
   role ENUM(
     'super_administrator',
+    'system_administrator',
     'asset_manager',
     'supervisor',
     'admin_clerk',
