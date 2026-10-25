@@ -14,7 +14,7 @@ type AssetTagCameraScannerProps = {
 
 function getCameraErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === 'NotAllowedError') {
-    return 'Camera access was denied. Allow camera access in your browser settings and try again.';
+    return 'The browser blocked camera access. Choose Allow if prompted. If no prompt appears, open this site’s browser permissions, set Camera to Allow, then tap Try again.';
   }
   if (error instanceof Error && error.name === 'NotFoundError') {
     return 'No camera was found on this device.';
@@ -33,6 +33,7 @@ export function AssetTagCameraScanner({
   const onDetectedRef = useRef(onDetected);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -120,7 +121,7 @@ export function AssetTagCameraScanner({
       disposed = true;
       controls?.stop();
     };
-  }, [active]);
+  }, [active, retryCount]);
 
   if (!active) return null;
 
@@ -148,9 +149,21 @@ export function AssetTagCameraScanner({
           </p>
         </>
       )}
-      <Button type="button" variant="outline" size="sm" onClick={onClose}>
-        {cameraError ? 'Close' : 'Stop camera'}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        {cameraError && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setRetryCount((count) => count + 1)}
+          >
+            Try again
+          </Button>
+        )}
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          {cameraError ? 'Close' : 'Stop camera'}
+        </Button>
+      </div>
     </div>
   );
 }

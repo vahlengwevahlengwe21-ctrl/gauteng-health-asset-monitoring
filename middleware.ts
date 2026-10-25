@@ -8,7 +8,7 @@ export function middleware(request: NextRequest) {
     response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     response.headers.set(
       'Permissions-Policy',
-      'camera=(), microphone=(), geolocation=()'
+      'camera=(self), microphone=(), geolocation=()'
     );
     if (process.env.NODE_ENV === 'production') {
       response.headers.set(
