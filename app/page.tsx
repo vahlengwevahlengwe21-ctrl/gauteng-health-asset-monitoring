@@ -512,35 +512,38 @@ export default function Home() {
         {/* Filters */}
         <Card className="p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="relative flex-1 space-y-2">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Type or scan asset tag, serial number, or IMEI..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPageOffset(0);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    setDebouncedSearch(search.trim());
-                    setPageOffset(0);
-                  }
-                }}
-                className="pl-10 pr-24"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="absolute right-1.5 top-1.5"
-                aria-label="Scan asset tag to search"
-                onClick={() => setSearchCameraOpen(true)}
-              >
-                <Camera className="mr-2 h-4 w-4" />
-                Scan
-              </Button>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Type or scan asset tag, serial number, or IMEI..."
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setPageOffset(0);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        setDebouncedSearch(search.trim());
+                        setPageOffset(0);
+                      }
+                    }}
+                    className="pl-10"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 shrink-0 gap-2 px-3"
+                  aria-label="Scan asset tag to search"
+                  onClick={() => setSearchCameraOpen(true)}
+                >
+                  <Camera className="h-4 w-4" />
+                  Scan
+                </Button>
+              </div>
               <AssetTagCameraScanner
                 active={searchCameraOpen}
                 onDetected={(value) => {
