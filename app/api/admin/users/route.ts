@@ -101,8 +101,10 @@ export async function POST(request: Request) {
     await getDbPool().execute(
       `INSERT INTO app_users (
         id, display_name, surname, persal_number, district, email,
-        contact_number, password_hash, role, last_login_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        contact_number, password_hash, role, last_login_at,
+        temporary_password_expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL,
+        DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE))`,
       [
         randomUUID(),
         profile.display_name,

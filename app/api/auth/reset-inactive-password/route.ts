@@ -52,6 +52,18 @@ export async function POST(request: Request) {
       body.current_password,
       body.new_password
     );
+    if (result === 'temporary_expired') {
+      return NextResponse.json(
+        { error: 'This temporary password has expired. Ask your administrator for a new one.' },
+        { status: 410 }
+      );
+    }
+    if (result === 'password_reused') {
+      return NextResponse.json(
+        { error: 'Choose a password different from your previous password.' },
+        { status: 400 }
+      );
+    }
     if (result === 'not_required') {
       return NextResponse.json(
         { error: 'A password reset is not required for this account. Sign in again.' },

@@ -48,7 +48,11 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
 
     await connection.execute(
-      `UPDATE app_users SET password_hash = ?, last_login_at = NULL,
+      `UPDATE app_users SET previous_password_hash =
+          COALESCE(previous_password_hash, password_hash),
+        password_hash = ?, temporary_password_expires_at =
+          DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE),
+        last_login_at = NULL,
         failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
       [passwordHash, id]
     );

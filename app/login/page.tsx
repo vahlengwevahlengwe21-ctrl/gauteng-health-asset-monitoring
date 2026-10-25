@@ -52,7 +52,9 @@ export default function LoginPage() {
       };
       if (!response.ok) {
         setError(
-          'Login failed. If you have made five unsuccessful attempts or cannot remember your password, contact your administrator to unlock your account or issue a temporary password. You can sign in as soon as they confirm the change.'
+          passwordResetRequired && result.error
+            ? result.error
+            : 'Login failed. Temporary passwords expire after 10 minutes. If yours has expired, you have made five unsuccessful attempts, or you cannot remember your password, contact your administrator for help.'
         );
         return;
       }
@@ -131,7 +133,7 @@ export default function LoginPage() {
           {passwordResetRequired && (
             <>
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
-                Enter your temporary password above, then create a new password to continue.
+                Enter your temporary password above, then create a new password within 10 minutes. Your new password must be different from your previous password.
               </div>
               <div className="space-y-2">
                 <Label htmlFor="new_password">New password</Label>

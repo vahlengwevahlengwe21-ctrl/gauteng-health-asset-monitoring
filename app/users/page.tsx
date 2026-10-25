@@ -291,7 +291,7 @@ export default function UsersPage() {
       }
       setTemporaryPassword({ userId: user.id, value: result.temporaryPassword });
       setMessage(
-        'Password reset. Share the temporary password securely; the user must replace it at their next sign-in.'
+        'Password reset. Share the temporary password securely; it expires in 10 minutes and must be replaced at the next sign-in.'
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to reset the user password.');
@@ -443,7 +443,7 @@ export default function UsersPage() {
                 maxLength={128}
               />
               <p className="text-xs text-muted-foreground">
-                Use at least 12 characters and share it securely. The user will be required to set a new password at first sign-in.
+                Use at least 12 characters and share it securely. It expires in 10 minutes; the user must set a different password at first sign-in.
               </p>
             </div>
             <div className="space-y-2">

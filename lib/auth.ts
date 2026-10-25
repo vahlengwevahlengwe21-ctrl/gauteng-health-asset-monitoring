@@ -58,6 +58,7 @@ type LoginRow = {
   failed_login_attempts: number;
   locked_until: string | null;
   password_reset_required: number;
+  temporary_password_expired: number;
 } & RowDataPacket;
 type PasswordRow = { password_hash: string } & RowDataPacket;
 
@@ -288,6 +289,9 @@ export async function verifyLoginCredentials(
       `SELECT id, display_name, surname, persal_number, email,
         contact_number, district, password_hash, role, is_active,
         failed_login_attempts, locked_until,
+        CASE WHEN temporary_password_expires_at IS NOT NULL
+          AND temporary_password_expires_at <= UTC_TIMESTAMP()
+          THEN TRUE ELSE FALSE END AS temporary_password_expired,
         CASE WHEN last_login_at IS NULL OR (
           role NOT IN ('super_administrator', 'system_administrator') AND
           last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
@@ -304,6 +308,11 @@ export async function verifyLoginCredentials(
 
     const systemWideAdministrator = isSystemWideAdministrator(user.role);
     if (user.locked_until !== null && !systemWideAdministrator) {
+      await derivePassword(password, Buffer.alloc(16, 0x51));
+      await connection.commit();
+      return null;
+    }
+    if (user.temporary_password_expired) {
       await derivePassword(password, Buffer.alloc(16, 0x51));
       await connection.commit();
       return null;
@@ -368,7 +377,7 @@ export async function resetInactiveUserPassword(
   persalNumber: string,
   currentPassword: string,
   newPassword: string
-): Promise<string | 'not_required' | null> {
+): Promise<string | 'not_required' | 'temporary_expired' | 'password_reused' | null> {
   const connection = await getDbPool().getConnection();
   try {
     await connection.beginTransaction();
@@ -376,15 +385,20 @@ export async function resetInactiveUserPassword(
       ({
         id: string;
         password_hash: string;
+        previous_password_hash: string | null;
         is_active: number;
         role: AppRole;
         failed_login_attempts: number;
         locked_until: string | null;
         password_reset_required: number;
+        temporary_password_expired: number;
       } & RowDataPacket)[]
     >(
-      `SELECT id, password_hash, is_active, role,
+      `SELECT id, password_hash, previous_password_hash, is_active, role,
         failed_login_attempts, locked_until,
+        CASE WHEN temporary_password_expires_at IS NOT NULL
+          AND temporary_password_expires_at <= UTC_TIMESTAMP()
+          THEN TRUE ELSE FALSE END AS temporary_password_expired,
         CASE WHEN last_login_at IS NULL OR (
           role NOT IN ('super_administrator', 'system_administrator') AND
           last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
@@ -403,6 +417,11 @@ export async function resetInactiveUserPassword(
       await derivePassword(currentPassword, Buffer.alloc(16, 0x51));
       await connection.commit();
       return null;
+    }
+    if (user.temporary_password_expired) {
+      await derivePassword(currentPassword, Buffer.alloc(16, 0x51));
+      await connection.commit();
+      return 'temporary_expired';
     }
     if (
       user.is_active !== 1 ||
@@ -432,13 +451,18 @@ export async function resetInactiveUserPassword(
       await connection.rollback();
       return 'not_required';
     }
-    if (await verifyPassword(newPassword, user.password_hash)) {
+    if (
+      (await verifyPassword(newPassword, user.password_hash)) ||
+      (user.previous_password_hash !== null &&
+        (await verifyPassword(newPassword, user.previous_password_hash)))
+    ) {
       await connection.rollback();
-      return null;
+      return 'password_reused';
     }
     const passwordHash = await hashPassword(newPassword);
     await connection.execute(
-      `UPDATE app_users SET password_hash = ?, last_login_at = UTC_TIMESTAMP(),
+      `UPDATE app_users SET password_hash = ?, previous_password_hash = NULL,
+        temporary_password_expires_at = NULL, last_login_at = UTC_TIMESTAMP(),
         failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
       [passwordHash, user.id]
     );

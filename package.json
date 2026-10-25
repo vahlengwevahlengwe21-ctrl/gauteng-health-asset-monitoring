@@ -23,6 +23,7 @@
     "migrate:user-contact-details": "node --env-file=.env.local scripts/migrate-user-contact-details.mjs",
     "migrate:protected-admin": "node --env-file=.env.local scripts/migrate-protected-super-admin.mjs",
     "migrate:security-audit": "node --env-file=.env.local scripts/migrate-security-audit.mjs",
+    "migrate:temporary-password-security": "node --env-file=.env.local scripts/migrate-temporary-password-security.mjs",
     "migrate:lost-assets": "node --env-file=.env.local scripts/migrate-lost-assets.mjs",
     "migrate:decommission-requests": "node --env-file=.env.local scripts/migrate-decommission-requests.mjs",
     "migrate:maintenance-records": "node --env-file=.env.local scripts/migrate-maintenance-records.mjs",
