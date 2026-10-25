@@ -35,9 +35,7 @@ export async function GET(request: Request) {
         contact_number, district,
         role, is_active, is_protected, failed_login_attempts,
         (locked_until IS NOT NULL) AS is_locked, created_at
-      FROM app_users
-      WHERE is_protected = FALSE OR locked_until IS NOT NULL
-      ORDER BY display_name`
+      FROM app_users WHERE is_protected = FALSE ORDER BY display_name`
     );
     return NextResponse.json(users);
   } catch (error) {

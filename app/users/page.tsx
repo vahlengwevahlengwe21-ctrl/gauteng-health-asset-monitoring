@@ -28,7 +28,6 @@ type ManagedUser = {
   district: string | null;
   role: AppRole;
   is_active: number;
-  is_protected: number;
   failed_login_attempts: number;
   is_locked: number;
 };
@@ -37,7 +36,6 @@ export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [isSuperAdministrator, setIsSuperAdministrator] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [surname, setSurname] = useState('');
   const [persalNumber, setPersalNumber] = useState('');
@@ -98,9 +96,8 @@ export default function UsersPage() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Unable to verify your account role.');
         const result = (await response.json()) as {
-          user: { id: string; role: AppRole };
+          user: { role: AppRole };
         };
-        setCurrentUserId(result.user.id);
         setIsSuperAdministrator(
           result.user.role === 'super_administrator'
         );
@@ -325,34 +322,6 @@ export default function UsersPage() {
     }
   };
 
-  const deleteUser = async (user: ManagedUser) => {
-    if (
-      !window.confirm(
-        `Permanently delete ${user.display_name} ${user.surname || ''}'s account? If it is linked to historical records, deletion will be blocked and you can deactivate it instead.`
-      )
-    ) {
-      return;
-    }
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch(
-        `/api/admin/users/${encodeURIComponent(user.id)}`,
-        { method: 'DELETE' }
-      );
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        throw new Error(result.error || 'Unable to delete the account.');
-      }
-      setUsers((currentUsers) =>
-        currentUsers.filter((currentUser) => currentUser.id !== user.id)
-      );
-      setMessage(`${user.display_name}'s account was deleted.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to delete the account.');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -538,22 +507,27 @@ export default function UsersPage() {
                     <p className="mt-1 text-xs font-medium text-primary">
                       {ROLE_DETAILS[user.role].label}
                     </p>
-                    {Boolean(user.is_protected) && (
-                      <p className="mt-1 text-xs font-semibold text-warning">
-                        Protected administrator account
-                      </p>
-                    )}
-                    <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
-                      {ROLE_DETAILS[user.role].description}
-                    </p>
                     {Boolean(user.is_locked) && (
                       <p className="mt-2 text-sm font-semibold text-destructive">
                         Locked after 5 failed login attempts
                       </p>
                     )}
+                    <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
+                      {ROLE_DETAILS[user.role].description}
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    {isSuperAdministrator && !user.is_protected && (
+                    {isSuperAdministrator && Boolean(user.is_locked) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => unlockUser(user)}
+                        disabled={unlockingUserId !== null}
+                      >
+                        {unlockingUserId === user.id ? 'Unlocking…' : 'Unlock account'}
+                      </Button>
+                    )}
+                    {isSuperAdministrator && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -565,87 +539,73 @@ export default function UsersPage() {
                           : 'Reset password'}
                       </Button>
                     )}
-                    {isSuperAdministrator && Boolean(user.is_locked) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => unlockUser(user)}
-                        disabled={unlockingUserId !== null}
-                      >
-                        {unlockingUserId === user.id ? 'Unlocking…' : 'Unlock account'}
-                      </Button>
-                    )}
-                    {!user.is_protected && (
-                      <>
-                        {isSuperAdministrator && currentUserId !== user.id && (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => deleteUser(user)}
-                          >
-                            Delete account
-                          </Button>
-                        )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (editingUserId === user.id) {
-                              setEditingUserId(null);
-                            } else {
-                              editUserProfile(user);
-                            }
-                          }}
-                        >
-                          {editingUserId === user.id ? 'Cancel profile edit' : 'Edit profile'}
-                        </Button>
-                        <Select
-                          value={user.role}
-                          onValueChange={(nextRole) =>
-                            updateUser(user, nextRole as AppRole, Boolean(user.is_active))
-                          }
-                        >
-                          <SelectTrigger className="w-48">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {APP_ROLES.map((item) => (
-                              <SelectItem key={item} value={item}>
-                                {ROLE_DETAILS[item].label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={user.district ?? undefined}
-                          onValueChange={(nextDistrict) =>
-                            updateUser(user, user.role, Boolean(user.is_active), nextDistrict)
-                          }
-                        >
-                          <SelectTrigger className="w-48" aria-label="Assign district">
-                            <SelectValue placeholder="Assign district" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {GAUTENG_DISTRICTS.map((item) => (
-                              <SelectItem key={item} value={item}>
-                                {item}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant={user.is_active ? 'outline' : 'default'}
-                          size="sm"
-                          onClick={() =>
-                            updateUser(user, user.role, !Boolean(user.is_active))
-                          }
-                        >
-                          {user.is_active ? 'Deactivate' : 'Activate'}
-                        </Button>
-                      </>
-                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (editingUserId === user.id) {
+                          setEditingUserId(null);
+                        } else {
+                          editUserProfile(user);
+                        }
+                      }}
+                    >
+                      {editingUserId === user.id ? 'Cancel profile edit' : 'Edit profile'}
+                    </Button>
+                    <Select
+                      value={user.role}
+                      onValueChange={(nextRole) =>
+                        updateUser(
+                          user,
+                          nextRole as AppRole,
+                          Boolean(user.is_active)
+                        )
+                      }
+                    >
+                      <SelectTrigger className="w-48">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {APP_ROLES.map((item) => (
+                          <SelectItem key={item} value={item}>
+                            {ROLE_DETAILS[item].label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={user.district ?? undefined}
+                      onValueChange={(nextDistrict) =>
+                        updateUser(
+                          user,
+                          user.role,
+                          Boolean(user.is_active),
+                          nextDistrict
+                        )
+                      }
+                    >
+                      <SelectTrigger className="w-48" aria-label="Assign district">
+                        <SelectValue placeholder="Assign district" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {GAUTENG_DISTRICTS.map((item) => (
+                          <SelectItem key={item} value={item}>
+                            {item}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant={user.is_active ? 'outline' : 'destructive'}
+                      size="sm"
+                      onClick={() =>
+                        updateUser(user, user.role, !Boolean(user.is_active))
+                      }
+                    >
+                      {user.is_active ? 'Deactivate' : 'Reactivate'}
+                    </Button>
                   </div>
-                  {!user.is_protected && temporaryPassword?.userId === user.id && (
+                  {temporaryPassword?.userId === user.id && (
                     <div className="grid gap-3 rounded-md border border-warning/40 bg-warning/10 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end">
                       <div className="space-y-2">
                         <Label htmlFor={`temporary-password-${user.id}`}>

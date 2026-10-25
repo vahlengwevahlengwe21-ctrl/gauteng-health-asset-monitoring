@@ -43,7 +43,6 @@ export function canAccessDistrict(
 }
 
 type SessionRow = AuthenticatedUser & {
-  locked_until: string | null;
   password_reset_required: number;
 } & RowDataPacket;
 type LoginRow = {
@@ -135,11 +134,7 @@ export async function authenticateRequest(
     );
     return null;
   }
-  const {
-    password_reset_required: _passwordResetRequired,
-    locked_until: _lockedUntil,
-    ...authenticatedUser
-  } = user;
+  const { password_reset_required: _passwordResetRequired, ...authenticatedUser } = user;
   return authenticatedUser;
 }
 

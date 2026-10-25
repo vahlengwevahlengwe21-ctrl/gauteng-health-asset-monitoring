@@ -20,7 +20,7 @@ export async function POST(request: Request, { params }: RouteContext) {
   try {
     await connection.beginTransaction();
     const [users] = await connection.execute<UserRow[]>(
-      'SELECT id FROM app_users WHERE id = ? FOR UPDATE',
+      'SELECT id FROM app_users WHERE id = ? AND is_protected = FALSE FOR UPDATE',
       [id]
     );
     if (users.length === 0) {
