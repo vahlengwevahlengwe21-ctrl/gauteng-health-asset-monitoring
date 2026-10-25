@@ -105,6 +105,9 @@ function normalizeOCRText(text: string): string {
 }
 
 function getCameraErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.name === 'OCRTimeoutError') {
+    return 'The text reader took too long to start on this device. Close other camera apps, check your connection, and tap Try again.';
+  }
   if (error instanceof Error && error.name === 'NotAllowedError') {
     return 'The browser blocked camera access. Choose Allow if prompted. If no prompt appears, open this site’s browser permissions, set Camera to Allow, then tap Try again.';
   }
@@ -131,6 +134,7 @@ export function AssetTagCameraScanner({
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState('Starting camera…');
   const [readError, setReadError] = useState<string | null>(null);
+  const [preparationSeconds, setPreparationSeconds] = useState(0);
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -148,6 +152,7 @@ export function AssetTagCameraScanner({
     setReadError(null);
     setCameraReady(false);
     setSecondsRemaining(null);
+    setPreparationSeconds(0);
     setStatusMessage('Starting camera…');
 
     const startScanner = async () => {
@@ -176,20 +181,54 @@ export function AssetTagCameraScanner({
 
         setStatusMessage('Preparing on-device text recognition…');
         const { createWorker, PSM } = await import('tesseract.js');
-        worker = await createWorker(
-          'eng',
-          1,
-          {
+        let initializationTimedOut = false;
+        let initializationTimeoutId: number | undefined;
+        const workerInitialization = (async () => {
+          const initializedWorker = await createWorker('eng', 1, {
             workerPath: '/ocr/worker.min.js',
             corePath: '/ocr',
             langPath: '/ocr/4.0.0_best_int',
             workerBlobURL: true,
-            logger: ({ status }) => {
-              if (!disposed) setStatusMessage(`Preparing text reader: ${status}…`);
+            logger: ({ status, progress }) => {
+              if (disposed) return;
+              const phase =
+                status === 'loading tesseract core'
+                  ? 'Loading the OCR engine'
+                  : status === 'loading language traineddata'
+                    ? 'Loading the English text model'
+                    : 'Initializing the OCR engine';
+              const percent = Number.isFinite(progress)
+                ? ` (${Math.round(progress * 100)}%)`
+                : '';
+              setStatusMessage(`${phase}${percent}…`);
             },
+          });
+          if (disposed || initializationTimedOut) {
+            await initializedWorker.terminate();
+            throw new Error('OCR initialization was interrupted.');
           }
-        );
-        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+          await initializedWorker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+          if (disposed || initializationTimedOut) {
+            await initializedWorker.terminate();
+            throw new Error('OCR initialization was interrupted.');
+          }
+          return initializedWorker;
+        })();
+        const initializationTimeout = new Promise<never>((_, reject) => {
+          initializationTimeoutId = window.setTimeout(() => {
+            initializationTimedOut = true;
+            const error = new Error('Text reader initialization timed out.');
+            error.name = 'OCRTimeoutError';
+            reject(error);
+          }, 60_000);
+        });
+        try {
+          worker = await Promise.race([workerInitialization, initializationTimeout]);
+        } finally {
+          if (initializationTimeoutId !== undefined) {
+            window.clearTimeout(initializationTimeoutId);
+          }
+        }
         if (disposed) {
           await worker.terminate();
           return;
@@ -198,7 +237,9 @@ export function AssetTagCameraScanner({
         setStatusMessage('Keep the printed tag centered and steady.');
         setCameraReady(true);
       } catch (error) {
-        if (!disposed) setCameraError(getCameraErrorMessage(error));
+        if (!disposed) {
+          setCameraError(getCameraErrorMessage(error));
+        }
       }
     };
 
@@ -211,6 +252,16 @@ export function AssetTagCameraScanner({
       if (worker) void worker.terminate();
     };
   }, [active, retryCount]);
+
+  useEffect(() => {
+    if (!active || cameraReady || cameraError) return;
+
+    const intervalId = window.setInterval(
+      () => setPreparationSeconds((seconds) => seconds + 1),
+      1000
+    );
+    return () => window.clearInterval(intervalId);
+  }, [active, cameraError, cameraReady]);
 
   useEffect(() => {
     if (!active || !cameraReady) return;
@@ -318,7 +369,9 @@ export function AssetTagCameraScanner({
               ? readError
               : cameraReady && secondsRemaining !== null
                 ? `Hold the tag in the guide and keep steady. Capturing in ${secondsRemaining} seconds…`
-                : statusMessage}
+                : !cameraReady && preparationSeconds >= 15
+                  ? `${statusMessage} This may take a little longer on this phone.`
+                  : statusMessage}
           </p>
         </>
       )}
