@@ -119,7 +119,7 @@ export function AssetTagCameraScanner({
     if (!active || !cameraReady) return;
 
     let disposed = false;
-    let seconds = 10;
+    let seconds = 3;
     setSecondsRemaining(seconds);
     const intervalId = window.setInterval(() => {
       seconds -= 1;

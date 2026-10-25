@@ -294,7 +294,7 @@ export function AssetFormDialog({
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Type the tag or use the camera to photograph the printed text. Keep the tag centered and steady for 10 seconds; check the copied text before saving.
+                Type the tag or use the camera to photograph the printed text. Keep the tag centered and steady for 3 seconds; check the copied text before saving.
               </p>
             </div>
             <div className="space-y-2">
