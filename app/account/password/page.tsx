@@ -7,6 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  isStrongPassword,
+  STRONG_PASSWORD_REQUIREMENTS,
+} from '@/lib/password-policy.mjs';
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -23,6 +27,10 @@ export default function ChangePasswordPage() {
     setMessage(null);
     if (newPassword !== confirmation) {
       setError('The new passwords do not match.');
+      return;
+    }
+    if (!isStrongPassword(newPassword)) {
+      setError(STRONG_PASSWORD_REQUIREMENTS);
       return;
     }
     setSaving(true);
@@ -55,8 +63,8 @@ export default function ChangePasswordPage() {
         <Card className="p-6">
           <h2 className="text-xl font-bold">Change password</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Use a unique password of at least 12 characters. Changing it signs out
-            your other active sessions.
+            {STRONG_PASSWORD_REQUIREMENTS} Changing it signs out your other active
+            sessions.
           </p>
           <form onSubmit={submit} className="mt-6 space-y-4">
             {error && (

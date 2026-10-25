@@ -25,7 +25,7 @@ export async function POST(request: Request, { params }: RouteContext) {
   if (auth.response) return auth.response;
 
   const { id } = await params;
-  const temporaryPassword = randomBytes(24).toString('base64url');
+  const temporaryPassword = `${randomBytes(24).toString('base64url')}Aa1!`;
   const passwordHash = await hashPassword(temporaryPassword);
   const connection = await getDbPool().getConnection();
 

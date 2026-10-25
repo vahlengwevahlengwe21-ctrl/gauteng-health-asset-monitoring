@@ -9,6 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { ShieldCheck } from 'lucide-react';
 import { formatPasswordCountdown } from '@/lib/password-countdown';
+import {
+  isStrongPassword,
+  STRONG_PASSWORD_REQUIREMENTS,
+} from '@/lib/password-policy.mjs';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,6 +44,10 @@ export default function LoginPage() {
     try {
       if (passwordResetRequired && newPassword !== confirmPassword) {
         setError('The new passwords do not match.');
+        return;
+      }
+      if (passwordResetRequired && !isStrongPassword(newPassword)) {
+        setError(STRONG_PASSWORD_REQUIREMENTS);
         return;
       }
       const response = await fetch(
@@ -159,7 +167,7 @@ export default function LoginPage() {
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
                 {temporaryPasswordExpired
                   ? 'This temporary password has expired. Ask your administrator for a new one.'
-                  : `Enter your temporary password above, then create a new password. Your new password must be different from your previous password.${countdown ? ` Time remaining: ${countdown}.` : ''}`}
+                  : `Enter your temporary password above, then create a new password. It must be different from your previous password and meet these requirements: ${STRONG_PASSWORD_REQUIREMENTS}${countdown ? ` Time remaining: ${countdown}.` : ''}`}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="new_password">New password</Label>

@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback } from 'node:crypto';
 import { promisify } from 'node:util';
 import mysql from 'mysql2/promise';
+import { isStrongPassword, STRONG_PASSWORD_REQUIREMENTS } from '../lib/password-policy.mjs';
 
 const scrypt = promisify(scryptCallback);
 const required = [
@@ -26,10 +27,9 @@ if (
   displayName.length < 2 ||
   displayName.length > 150 ||
   !/^\d{8}$/.test(persalNumber) ||
-  password.length < 12 ||
-  password.length > 128
+  !isStrongPassword(password)
 ) {
-  console.error('Admin name, 8-digit PERSAL number, or password does not meet validation requirements.');
+  console.error(`Admin name, 8-digit PERSAL number, or password does not meet validation requirements. ${STRONG_PASSWORD_REQUIREMENTS}`);
   process.exit(1);
 }
 

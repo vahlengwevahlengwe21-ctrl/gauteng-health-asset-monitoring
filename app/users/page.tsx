@@ -22,6 +22,10 @@ import {
 } from '@/components/ui/select';
 import type { AppRole } from '@/lib/auth';
 import { formatPasswordCountdown } from '@/lib/password-countdown';
+import {
+  isStrongPassword,
+  STRONG_PASSWORD_REQUIREMENTS,
+} from '@/lib/password-policy.mjs';
 
 type ManagedUser = {
   id: string;
@@ -137,7 +141,7 @@ export default function UsersPage() {
       !/^\d{8}$/.test(persalNumber) ||
       !email.trim() ||
       !contactNumber.trim() ||
-      password.length < 12 ||
+      !isStrongPassword(password) ||
       !role ||
       (role !== 'system_administrator' &&
         !GAUTENG_DISTRICTS.includes(
@@ -452,7 +456,7 @@ export default function UsersPage() {
                 maxLength={128}
               />
               <p className="text-xs text-muted-foreground">
-                Use at least 12 characters and share it securely. It expires in 10 minutes; the user must set a different password at first sign-in.
+                {STRONG_PASSWORD_REQUIREMENTS} Share it securely; it expires in 10 minutes and the user must set a different password at first sign-in.
               </p>
             </div>
             <div className="space-y-2">

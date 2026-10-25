@@ -12,6 +12,7 @@ import { getDbPool } from './db';
 import { APP_ROLES, isSystemWideAdministrator, type AppRole } from './roles';
 import { SESSION_COOKIE } from './session-constants';
 import { GAUTENG_DISTRICTS } from './types';
+import { isStrongPassword } from './password-policy.mjs';
 
 const scrypt = promisify(scryptCallback);
 export const SESSION_DURATION_SECONDS = 60 * 60 * 12;
@@ -61,7 +62,10 @@ type LoginRow = {
   temporary_password_expired: number;
   temporary_password_seconds_remaining: number | null;
 } & RowDataPacket;
-type PasswordRow = { password_hash: string } & RowDataPacket;
+type PasswordRow = {
+  password_hash: string;
+  previous_password_hash: string | null;
+} & RowDataPacket;
 
 function sessionTokenFromRequest(request: Request): string | null {
   const cookies = request.headers.get('cookie')?.split(';') ?? [];
@@ -165,12 +169,15 @@ export async function changePassword(
   userId: string,
   currentPassword: string,
   newPassword: string
-): Promise<string | null> {
+): Promise<string | 'password_reused' | null> {
+  if (!isStrongPassword(newPassword)) {
+    throw new Error('New password does not meet strength requirements.');
+  }
   const connection = await getDbPool().getConnection();
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute<PasswordRow[]>(
-      'SELECT password_hash FROM app_users WHERE id = ? AND is_active = TRUE FOR UPDATE',
+      'SELECT password_hash, previous_password_hash FROM app_users WHERE id = ? AND is_active = TRUE FOR UPDATE',
       [userId]
     );
     if (
@@ -180,9 +187,18 @@ export async function changePassword(
       await connection.rollback();
       return null;
     }
+    if (
+      (await verifyPassword(newPassword, rows[0].password_hash)) ||
+      (rows[0].previous_password_hash !== null &&
+        (await verifyPassword(newPassword, rows[0].previous_password_hash)))
+    ) {
+      await connection.rollback();
+      return 'password_reused';
+    }
     const passwordHash = await hashPassword(newPassword);
     await connection.execute(
-      `UPDATE app_users SET password_hash = ?, last_login_at = UTC_TIMESTAMP(),
+      `UPDATE app_users SET previous_password_hash = password_hash,
+        password_hash = ?, last_login_at = UTC_TIMESTAMP(),
         failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
       [passwordHash, userId]
     );
@@ -388,7 +404,14 @@ export async function resetInactiveUserPassword(
   persalNumber: string,
   currentPassword: string,
   newPassword: string
-): Promise<string | 'not_required' | 'temporary_expired' | 'password_reused' | null> {
+): Promise<
+  | string
+  | 'not_required'
+  | 'temporary_expired'
+  | 'password_reused'
+  | 'weak_password'
+  | null
+> {
   const connection = await getDbPool().getConnection();
   try {
     await connection.beginTransaction();
@@ -470,9 +493,13 @@ export async function resetInactiveUserPassword(
       await connection.rollback();
       return 'password_reused';
     }
+    if (!isStrongPassword(newPassword)) {
+      await connection.rollback();
+      return 'weak_password';
+    }
     const passwordHash = await hashPassword(newPassword);
     await connection.execute(
-      `UPDATE app_users SET password_hash = ?, previous_password_hash = NULL,
+      `UPDATE app_users SET password_hash = ?,
         temporary_password_expires_at = NULL, last_login_at = UTC_TIMESTAMP(),
         failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
       [passwordHash, user.id]

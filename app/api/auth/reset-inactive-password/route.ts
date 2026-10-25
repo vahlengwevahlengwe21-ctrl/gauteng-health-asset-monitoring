@@ -6,6 +6,10 @@ import {
   resetInactiveUserPassword,
   sessionCookie,
 } from '@/lib/auth';
+import {
+  isStrongPassword,
+  STRONG_PASSWORD_REQUIREMENTS,
+} from '@/lib/password-policy.mjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,11 +35,10 @@ export async function POST(request: Request) {
     typeof body.current_password !== 'string' ||
     !body.current_password ||
     typeof body.new_password !== 'string' ||
-    body.new_password.length < 12 ||
-    body.new_password.length > 128
+    !isStrongPassword(body.new_password)
   ) {
     return NextResponse.json(
-      { error: 'Enter your PERSAL number, current password, and a new password of 12–128 characters.' },
+      { error: `Enter your PERSAL number, current password, and a strong new password. ${STRONG_PASSWORD_REQUIREMENTS}` },
       { status: 400 }
     );
   }
@@ -61,6 +64,12 @@ export async function POST(request: Request) {
     if (result === 'password_reused') {
       return NextResponse.json(
         { error: 'Choose a password different from your previous password.' },
+        { status: 400 }
+      );
+    }
+    if (result === 'weak_password') {
+      return NextResponse.json(
+        { error: `Choose a stronger password. ${STRONG_PASSWORD_REQUIREMENTS}` },
         { status: 400 }
       );
     }

@@ -7,6 +7,7 @@ import type { AppRole } from '@/lib/auth';
 import { APP_ROLES } from '@/lib/roles';
 import { GAUTENG_DISTRICTS } from '@/lib/types';
 import { parseUserProfile } from '@/lib/user-validation';
+import { isStrongPassword, STRONG_PASSWORD_REQUIREMENTS } from '@/lib/password-policy.mjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,8 +89,7 @@ export async function POST(request: Request) {
     typeof body.role !== 'string' ||
     (typeof body.district !== 'string' && body.district !== null) ||
     !/^\d{8}$/.test(body.persal_number) ||
-    body.password.length < 12 ||
-    body.password.length > 128 ||
+    !isStrongPassword(body.password) ||
     !APP_ROLES.includes(body.role as AppRole) ||
     (body.role === 'system_administrator'
       ? body.district !== null
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
     body.role === 'super_administrator'
   ) {
     return NextResponse.json(
-      { error: 'Complete every required field with a valid name, surname, district when required, 8-digit PERSAL number, password, and role. Super Administrator accounts cannot be created here.' },
+      { error: `Complete every required field with a valid name, surname, district when required, 8-digit PERSAL number, strong password (${STRONG_PASSWORD_REQUIREMENTS}), and role. Super Administrator accounts cannot be created here.` },
       { status: 400 }
     );
   }

@@ -1,6 +1,7 @@
 import { randomBytes, scrypt as scryptCallback } from 'node:crypto';
 import { promisify } from 'node:util';
 import mysql from 'mysql2/promise';
+import { isStrongPassword, STRONG_PASSWORD_REQUIREMENTS } from '../lib/password-policy.mjs';
 
 const scrypt = promisify(scryptCallback);
 const required = [
@@ -20,8 +21,8 @@ if (missing.length) {
 
 const persalNumber = process.env.SUPER_ADMIN_PERSAL_NUMBER.trim();
 const password = process.env.SUPER_ADMIN_NEW_PASSWORD;
-if (!/^\d{8}$/.test(persalNumber) || password.length < 16 || password.length > 128) {
-  console.error('Use an 8-digit PERSAL number and a unique password of 16–128 characters.');
+if (!/^\d{8}$/.test(persalNumber) || password.length < 16 || !isStrongPassword(password)) {
+  console.error(`Use an 8-digit PERSAL number and a unique strong password of 16–128 characters. ${STRONG_PASSWORD_REQUIREMENTS}`);
   process.exit(1);
 }
 
@@ -55,8 +56,9 @@ try {
   const passwordHash = `scrypt$${salt.toString('hex')}$${derived.toString('hex')}`;
   await connection.beginTransaction();
   await connection.execute(
-    `UPDATE app_users SET persal_number = ?, password_hash = ?,
-      last_login_at = UTC_TIMESTAMP(),
+    `UPDATE app_users SET persal_number = ?,
+      previous_password_hash = password_hash, password_hash = ?,
+      temporary_password_expires_at = NULL, last_login_at = UTC_TIMESTAMP(),
       failed_login_attempts = 0, locked_until = NULL
     WHERE id = ?`,
     [persalNumber, passwordHash, protectedUsers[0].id]

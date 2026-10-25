@@ -5,6 +5,10 @@ import {
   requireUser,
   sessionCookie,
 } from '@/lib/auth';
+import {
+  isStrongPassword,
+  STRONG_PASSWORD_REQUIREMENTS,
+} from '@/lib/password-policy.mjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,11 +33,10 @@ export async function POST(request: Request) {
     typeof body.current_password !== 'string' ||
     typeof body.new_password !== 'string' ||
     body.current_password.length === 0 ||
-    body.new_password.length < 12 ||
-    body.new_password.length > 128
+    !isStrongPassword(body.new_password)
   ) {
     return NextResponse.json(
-      { error: 'Enter your current password and a new password of 12–128 characters.' },
+      { error: `Enter your current password and a strong new password. ${STRONG_PASSWORD_REQUIREMENTS}` },
       { status: 400 }
     );
   }
@@ -44,6 +47,12 @@ export async function POST(request: Request) {
       body.current_password,
       body.new_password
     );
+    if (token === 'password_reused') {
+      return NextResponse.json(
+        { error: 'Choose a password different from your current and previous password.' },
+        { status: 400 }
+      );
+    }
     if (!token) {
       return NextResponse.json({ error: 'Current password is incorrect.' }, { status: 400 });
     }
