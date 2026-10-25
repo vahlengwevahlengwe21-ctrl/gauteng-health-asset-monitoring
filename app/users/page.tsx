@@ -37,6 +37,7 @@ export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [isSuperAdministrator, setIsSuperAdministrator] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [surname, setSurname] = useState('');
   const [persalNumber, setPersalNumber] = useState('');
@@ -97,8 +98,9 @@ export default function UsersPage() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Unable to verify your account role.');
         const result = (await response.json()) as {
-          user: { role: AppRole };
+          user: { id: string; role: AppRole };
         };
+        setCurrentUserId(result.user.id);
         setIsSuperAdministrator(
           result.user.role === 'super_administrator'
         );
@@ -320,6 +322,34 @@ export default function UsersPage() {
       setError(err instanceof Error ? err.message : 'Unable to unlock the user account.');
     } finally {
       setUnlockingUserId(null);
+    }
+  };
+
+  const deleteUser = async (user: ManagedUser) => {
+    if (
+      !window.confirm(
+        `Permanently delete ${user.display_name} ${user.surname || ''}'s account? If it is linked to historical records, deletion will be blocked and you can deactivate it instead.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(
+        `/api/admin/users/${encodeURIComponent(user.id)}`,
+        { method: 'DELETE' }
+      );
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error || 'Unable to delete the account.');
+      }
+      setUsers((currentUsers) =>
+        currentUsers.filter((currentUser) => currentUser.id !== user.id)
+      );
+      setMessage(`${user.display_name}'s account was deleted.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to delete the account.');
     }
   };
 
@@ -547,6 +577,15 @@ export default function UsersPage() {
                     )}
                     {!user.is_protected && (
                       <>
+                        {isSuperAdministrator && currentUserId !== user.id && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => deleteUser(user)}
+                          >
+                            Delete account
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
@@ -595,13 +634,13 @@ export default function UsersPage() {
                           </SelectContent>
                         </Select>
                         <Button
-                          variant={user.is_active ? 'outline' : 'destructive'}
+                          variant={user.is_active ? 'outline' : 'default'}
                           size="sm"
                           onClick={() =>
                             updateUser(user, user.role, !Boolean(user.is_active))
                           }
                         >
-                          {user.is_active ? 'Deactivate' : 'Reactivate'}
+                          {user.is_active ? 'Deactivate' : 'Activate'}
                         </Button>
                       </>
                     )}

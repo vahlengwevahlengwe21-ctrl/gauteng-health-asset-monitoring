@@ -160,3 +160,73 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     connection.release();
   }
 }
+
+export async function DELETE(request: Request, { params }: RouteContext) {
+  const { id } = await params;
+  if (!isSameOriginRequest(request)) {
+    return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 });
+  }
+  const auth = await requireUser(request, 'super_administrator');
+  if (auth.response) return auth.response;
+  if (id === auth.user.id) {
+    return NextResponse.json(
+      { error: 'You cannot delete your own account.' },
+      { status: 400 }
+    );
+  }
+
+  const connection = await getDbPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute<UserRoleRow[]>(
+      'SELECT role, is_active, is_protected, district FROM app_users WHERE id = ? FOR UPDATE',
+      [id]
+    );
+    if (rows.length === 0) {
+      await connection.rollback();
+      return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+    }
+    const user = rows[0];
+    if (user.is_protected) {
+      await connection.rollback();
+      return NextResponse.json(
+        { error: 'The protected Super Administrator account cannot be deleted.' },
+        { status: 403 }
+      );
+    }
+    if (user.role === 'super_administrator' && user.is_active) {
+      const [admins] = await connection.query<
+        (RowDataPacket & { count: number })[]
+      >(
+        `SELECT COUNT(*) AS count FROM app_users
+        WHERE role = 'super_administrator' AND is_active = TRUE`
+      );
+      if (Number(admins[0].count) <= 1) {
+        await connection.rollback();
+        return NextResponse.json(
+          { error: 'At least one active Super Administrator must remain.' },
+          { status: 409 }
+        );
+      }
+    }
+
+    await connection.execute('DELETE FROM app_users WHERE id = ?', [id]);
+    await connection.commit();
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    await connection.rollback();
+    if ((error as { code?: string }).code === 'ER_ROW_IS_REFERENCED_2') {
+      return NextResponse.json(
+        {
+          error:
+            'This account is linked to historical records and cannot be deleted. Deactivate it to remove access while preserving the audit history.',
+        },
+        { status: 409 }
+      );
+    }
+    console.error('Failed to delete authorized user:', error);
+    return NextResponse.json({ error: 'Unable to delete the account.' }, { status: 500 });
+  } finally {
+    connection.release();
+  }
+}
