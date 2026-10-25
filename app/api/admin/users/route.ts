@@ -23,6 +23,7 @@ type UserRow = {
   is_protected: number;
   failed_login_attempts: number;
   is_locked: number;
+  temporary_password_seconds_remaining: number | null;
   created_at: string;
 } & RowDataPacket;
 
@@ -37,12 +38,25 @@ export async function GET(request: Request) {
         (
           locked_until IS NOT NULL AND
           role NOT IN ('super_administrator', 'system_administrator')
-        ) AS is_locked, created_at
+        ) AS is_locked,
+        CAST(GREATEST(0, TIMESTAMPDIFF(
+          SECOND, UTC_TIMESTAMP(), temporary_password_expires_at
+        )) AS UNSIGNED) AS temporary_password_seconds_remaining,
+        created_at
       FROM app_users
       WHERE is_protected = FALSE AND role <> 'super_administrator'
       ORDER BY display_name`
     );
-    return NextResponse.json(users);
+    return NextResponse.json(
+      users.map(({ temporary_password_seconds_remaining, ...user }) => ({
+        ...user,
+        temporary_password_expires_at_ms:
+          temporary_password_seconds_remaining === null
+            ? null
+            : Date.now() +
+              Number(temporary_password_seconds_remaining) * 1000,
+      }))
+    );
   } catch (error) {
     console.error('Failed to list authorized users:', error);
     return NextResponse.json({ error: 'Unable to load authorized users.' }, { status: 500 });

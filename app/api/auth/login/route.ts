@@ -53,7 +53,10 @@ export async function POST(request: Request) {
     }
     await clearLoginRateLimit(request, body.persal_number);
     if (login.passwordResetRequired) {
-      return NextResponse.json({ passwordResetRequired: true });
+      return NextResponse.json({
+        passwordResetRequired: true,
+        temporaryPasswordExpiresAt: login.temporaryPasswordExpiresAt,
+      });
     }
     const token = await createSession(login.user.id);
     const response = NextResponse.json({ user: login.user });

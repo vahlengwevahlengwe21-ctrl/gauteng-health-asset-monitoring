@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { AppRole } from '@/lib/auth';
+import { formatPasswordCountdown } from '@/lib/password-countdown';
 
 type ManagedUser = {
   id: string;
@@ -34,6 +35,7 @@ type ManagedUser = {
   is_active: number;
   failed_login_attempts: number;
   is_locked: number;
+  temporary_password_expires_at_ms: number | null;
 };
 
 export default function UsersPage() {
@@ -49,6 +51,7 @@ export default function UsersPage() {
   const [role, setRole] = useState<AppRole | ''>('');
   const [district, setDistrict] = useState('');
   const [loading, setLoading] = useState(true);
+  const [countdownNow, setCountdownNow] = useState(Date.now);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -99,6 +102,11 @@ export default function UsersPage() {
       setLoading(false);
     }
   }, [router]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -293,6 +301,7 @@ export default function UsersPage() {
       setMessage(
         'Password reset. Share the temporary password securely; it expires in 10 minutes and must be replaced at the next sign-in.'
       );
+      await loadUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to reset the user password.');
     } finally {
@@ -543,6 +552,21 @@ export default function UsersPage() {
                     <p className="mt-1 text-xs font-medium text-primary">
                       {ROLE_DETAILS[user.role].label}
                     </p>
+                    {user.temporary_password_expires_at_ms !== null && (
+                      <p className={`mt-2 text-sm font-semibold ${
+                        user.temporary_password_expires_at_ms <= countdownNow
+                          ? 'text-destructive'
+                          : 'text-warning'
+                      }`}>
+                        Temporary password{' '}
+                        {user.temporary_password_expires_at_ms <= countdownNow
+                          ? 'expired — issue a new one'
+                          : `expires in ${formatPasswordCountdown(
+                              user.temporary_password_expires_at_ms,
+                              countdownNow
+                            )}`}
+                      </p>
+                    )}
                     {Boolean(user.is_locked) && (
                       <p className="mt-2 text-sm font-semibold text-destructive">
                         Locked after 5 failed login attempts

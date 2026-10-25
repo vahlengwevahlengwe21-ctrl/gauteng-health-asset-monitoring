@@ -59,6 +59,7 @@ type LoginRow = {
   locked_until: string | null;
   password_reset_required: number;
   temporary_password_expired: number;
+  temporary_password_seconds_remaining: number | null;
 } & RowDataPacket;
 type PasswordRow = { password_hash: string } & RowDataPacket;
 
@@ -281,7 +282,11 @@ export function isSameOriginRequest(request: Request): boolean {
 export async function verifyLoginCredentials(
   persalNumber: string,
   password: string
-): Promise<{ user: AuthenticatedUser; passwordResetRequired: boolean } | null> {
+): Promise<{
+  user: AuthenticatedUser;
+  passwordResetRequired: boolean;
+  temporaryPasswordExpiresAt: number | null;
+} | null> {
   const connection = await getDbPool().getConnection();
   try {
     await connection.beginTransaction();
@@ -292,6 +297,9 @@ export async function verifyLoginCredentials(
         CASE WHEN temporary_password_expires_at IS NOT NULL
           AND temporary_password_expires_at <= UTC_TIMESTAMP()
           THEN TRUE ELSE FALSE END AS temporary_password_expired,
+        CAST(GREATEST(0, TIMESTAMPDIFF(
+          SECOND, UTC_TIMESTAMP(), temporary_password_expires_at
+        )) AS UNSIGNED) AS temporary_password_seconds_remaining,
         CASE WHEN last_login_at IS NULL OR (
           role NOT IN ('super_administrator', 'system_administrator') AND
           last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
@@ -354,6 +362,9 @@ export async function verifyLoginCredentials(
     await connection.commit();
     return {
       passwordResetRequired,
+      temporaryPasswordExpiresAt: user.temporary_password_seconds_remaining === null
+        ? null
+        : Date.now() + Number(user.temporary_password_seconds_remaining) * 1000,
       user: {
         id: user.id,
         display_name: user.display_name,

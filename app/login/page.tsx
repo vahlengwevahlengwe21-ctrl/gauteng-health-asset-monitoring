@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { ShieldCheck } from 'lucide-react';
+import { formatPasswordCountdown } from '@/lib/password-countdown';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,8 +17,21 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordResetRequired, setPasswordResetRequired] = useState(false);
+  const [temporaryPasswordExpiresAt, setTemporaryPasswordExpiresAt] =
+    useState<number | null>(null);
+  const [countdownNow, setCountdownNow] = useState(Date.now);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const countdown = temporaryPasswordExpiresAt === null
+    ? null
+    : formatPasswordCountdown(temporaryPasswordExpiresAt, countdownNow);
+  const temporaryPasswordExpired = countdown === '00:00';
+
+  useEffect(() => {
+    if (!passwordResetRequired || temporaryPasswordExpiresAt === null) return;
+    const interval = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [passwordResetRequired, temporaryPasswordExpiresAt]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -49,8 +63,16 @@ export default function LoginPage() {
       const result = (await response.json()) as {
         error?: string;
         passwordResetRequired?: boolean;
+        temporaryPasswordExpiresAt?: number | null;
       };
       if (!response.ok) {
+        if (
+          passwordResetRequired &&
+          result.error === 'Choose a password different from your previous password.'
+        ) {
+          setNewPassword('');
+          setConfirmPassword('');
+        }
         setError(
           passwordResetRequired && result.error
             ? result.error
@@ -60,6 +82,8 @@ export default function LoginPage() {
       }
       if (result.passwordResetRequired) {
         setPasswordResetRequired(true);
+        setTemporaryPasswordExpiresAt(result.temporaryPasswordExpiresAt ?? null);
+        setCountdownNow(Date.now());
         setError(null);
         return;
       }
@@ -133,7 +157,9 @@ export default function LoginPage() {
           {passwordResetRequired && (
             <>
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
-                Enter your temporary password above, then create a new password within 10 minutes. Your new password must be different from your previous password.
+                {temporaryPasswordExpired
+                  ? 'This temporary password has expired. Ask your administrator for a new one.'
+                  : `Enter your temporary password above, then create a new password. Your new password must be different from your previous password.${countdown ? ` Time remaining: ${countdown}.` : ''}`}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="new_password">New password</Label>
@@ -163,7 +189,11 @@ export default function LoginPage() {
               </div>
             </>
           )}
-          <Button type="submit" className="w-full" disabled={submitting}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={submitting || temporaryPasswordExpired}
+          >
             {submitting
               ? passwordResetRequired ? 'Resetting password…' : 'Signing in…'
               : passwordResetRequired ? 'Reset password and continue' : 'Sign in securely'}
