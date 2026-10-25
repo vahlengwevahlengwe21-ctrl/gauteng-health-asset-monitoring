@@ -232,7 +232,7 @@ export function AssetTagCameraScanner({
             aria-live="polite"
           >
             {analyzing
-              ? "Sending the photo to OpenAI for text analysis… The app does not save it; OpenAI's retention is governed by its policies."
+              ? 'Sending the photo to Google Gemini… The app does not save it. Google may use free-tier submissions to improve its services and may have human reviewers process them.'
               : analysisError ||
                 (capturedPhotoUrl
                   ? 'Photo captured. Try again with a clearer image if needed.'
@@ -242,7 +242,7 @@ export function AssetTagCameraScanner({
           </p>
           {!analyzing && cameraReady && (
             <p className="text-xs text-muted-foreground">
-              The photo is sent to OpenAI for text analysis and is not saved by the app. OpenAI&apos;s retention is governed by its policies.
+              Free Google Gemini processing may use submissions to improve Google services, and human reviewers may process them. Do not photograph confidential or personal information. The app does not save the photo.
             </p>
           )}
         </>
