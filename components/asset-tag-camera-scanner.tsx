@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { Worker } from 'tesseract.js';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { CameraOff } from 'lucide-react';
+import { CameraOff, Loader2 } from 'lucide-react';
 
 type AssetTagCameraScannerProps = {
   active: boolean;
@@ -11,103 +11,10 @@ type AssetTagCameraScannerProps = {
   onClose: () => void;
 };
 
-type OCRCandidate = {
-  text: string;
-  confidence: number;
-};
-
-function createOCRCanvases(video: HTMLVideoElement): HTMLCanvasElement[] {
-  const cropWidth = video.videoWidth * 0.9;
-  const cropHeight = video.videoHeight * 0.5;
-  const sourceX = (video.videoWidth - cropWidth) / 2;
-  const sourceY = (video.videoHeight - cropHeight) / 2;
-  const width = Math.min(Math.round(cropWidth * 2), 2400);
-  const height = Math.round((width / cropWidth) * cropHeight);
-  const canvases = [document.createElement('canvas'), document.createElement('canvas')];
-
-  for (const canvas of canvases) {
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Could not prepare the camera image for text recognition.');
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = 'high';
-    context.drawImage(
-      video,
-      sourceX,
-      sourceY,
-      cropWidth,
-      cropHeight,
-      0,
-      0,
-      width,
-      height
-    );
-  }
-
-  const enhancedContext = canvases[1].getContext('2d');
-  if (!enhancedContext) throw new Error('Could not enhance the camera image.');
-  const image = enhancedContext.getImageData(0, 0, width, height);
-  const histogram = new Array<number>(256).fill(0);
-  for (let index = 0; index < image.data.length; index += 4) {
-    const gray = Math.round(
-      image.data[index] * 0.299 +
-        image.data[index + 1] * 0.587 +
-        image.data[index + 2] * 0.114
-    );
-    image.data[index] = gray;
-    image.data[index + 1] = gray;
-    image.data[index + 2] = gray;
-    histogram[gray] += 1;
-  }
-
-  const pixelCount = width * height;
-  let weightedTotal = 0;
-  for (let value = 0; value < histogram.length; value += 1) {
-    weightedTotal += value * histogram[value];
-  }
-  let backgroundWeight = 0;
-  let backgroundTotal = 0;
-  let threshold = 160;
-  let bestVariance = 0;
-  for (let value = 0; value < histogram.length; value += 1) {
-    backgroundWeight += histogram[value];
-    if (backgroundWeight === 0) continue;
-    const foregroundWeight = pixelCount - backgroundWeight;
-    if (foregroundWeight === 0) break;
-    backgroundTotal += value * histogram[value];
-    const backgroundMean = backgroundTotal / backgroundWeight;
-    const foregroundMean = (weightedTotal - backgroundTotal) / foregroundWeight;
-    const variance =
-      backgroundWeight *
-      foregroundWeight *
-      (backgroundMean - foregroundMean) ** 2;
-    if (variance > bestVariance) {
-      bestVariance = variance;
-      threshold = value;
-    }
-  }
-
-  for (let index = 0; index < image.data.length; index += 4) {
-    const gray = image.data[index];
-    const enhanced = gray < threshold ? 0 : 255;
-    image.data[index] = enhanced;
-    image.data[index + 1] = enhanced;
-    image.data[index + 2] = enhanced;
-  }
-  enhancedContext.putImageData(image, 0, 0);
-
-  return canvases;
-}
-
-function normalizeOCRText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
-}
+const MAX_CAPTURE_WIDTH = 1600;
+const OCR_TIMEOUT_MS = 12_000;
 
 function getCameraErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.name === 'OCRTimeoutError') {
-    return 'The text reader took too long to start on this device. Close other camera apps, check your connection, and tap Try again.';
-  }
   if (error instanceof Error && error.name === 'NotAllowedError') {
     return 'The browser blocked camera access. Choose Allow if prompted. If no prompt appears, open this site’s browser permissions, set Camera to Allow, then tap Try again.';
   }
@@ -115,8 +22,35 @@ function getCameraErrorMessage(error: unknown): string {
     return 'No camera was found on this device.';
   }
   return error instanceof Error
-    ? `Could not start text scanning: ${error.message}`
-    : 'Could not start text scanning.';
+    ? `Could not start the camera: ${error.message}`
+    : 'Could not start the camera.';
+}
+
+function capturePhoto(video: HTMLVideoElement): Promise<Blob> {
+  if (!video.videoWidth || !video.videoHeight) {
+    return Promise.reject(new Error('The camera image is not ready. Try again.'));
+  }
+
+  const scale = Math.min(1, MAX_CAPTURE_WIDTH / video.videoWidth);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return Promise.reject(new Error('Could not capture the camera image. Try again.'));
+  }
+
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Could not capture the camera image. Try again.'));
+      },
+      'image/jpeg',
+      0.88
+    );
+  });
 }
 
 export function AssetTagCameraScanner({
@@ -125,16 +59,14 @@ export function AssetTagCameraScanner({
   onClose,
 }: AssetTagCameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const workerRef = useRef<Worker | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const onDetectedRef = useRef(onDetected);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  const [captureAttempt, setCaptureAttempt] = useState(0);
-  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
-  const [statusMessage, setStatusMessage] = useState('Starting camera…');
-  const [readError, setReadError] = useState<string | null>(null);
-  const [preparationSeconds, setPreparationSeconds] = useState(0);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -145,19 +77,19 @@ export function AssetTagCameraScanner({
 
     let disposed = false;
     let stream: MediaStream | undefined;
-    let worker: Worker | undefined;
     const video = videoRef.current;
-    workerRef.current = null;
     setCameraError(null);
-    setReadError(null);
+    setAnalysisError(null);
     setCameraReady(false);
-    setSecondsRemaining(null);
-    setPreparationSeconds(0);
-    setStatusMessage('Starting camera…');
+    setAnalyzing(false);
+    setCapturedPhotoUrl((previousUrl) => {
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
+      return null;
+    });
 
-    const startScanner = async () => {
+    const startCamera = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraError('Camera scanning requires a secure HTTPS connection and a supported browser.');
+        setCameraError('Camera capture requires a secure HTTPS connection and a supported browser.');
         return;
       }
 
@@ -174,184 +106,92 @@ export function AssetTagCameraScanner({
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
-
+        streamRef.current = stream;
         video.srcObject = stream;
         await video.play();
-        if (disposed) return;
-
-        setStatusMessage('Preparing on-device text recognition…');
-        const { createWorker, PSM } = await import('tesseract.js');
-        let initializationTimedOut = false;
-        let initializationTimeoutId: number | undefined;
-        let rejectWorkerFailure: (error: unknown) => void = () => {};
-        const workerFailure = new Promise<never>((_, reject) => {
-          rejectWorkerFailure = reject;
-        });
-        const workerInitialization = (async () => {
-          const initializedWorker = await createWorker('eng', 1, {
-            workerPath: '/ocr/worker.min.js',
-            corePath: '/ocr/tesseract-core-lstm.wasm.js',
-            langPath: '/ocr/4.0.0_best_int',
-            workerBlobURL: false,
-            logger: ({ status, progress }) => {
-              if (disposed) return;
-              const phase =
-                status === 'loading tesseract core'
-                  ? 'Loading the OCR engine'
-                  : status === 'loading language traineddata'
-                    ? 'Loading the English text model'
-                    : status === 'initializing api'
-                      ? 'Starting the OCR reader'
-                      : 'Preparing the OCR reader';
-              const percent = Number.isFinite(progress)
-                ? ` (${Math.round(progress * 100)}%)`
-                : '';
-              setStatusMessage(`${phase}${percent}…`);
-            },
-            errorHandler: (error: unknown) => {
-              console.error('OCR worker failed during initialization:', error);
-              rejectWorkerFailure(
-                error instanceof Error ? error : new Error(String(error))
-              );
-            },
-          });
-          if (disposed || initializationTimedOut) {
-            await initializedWorker.terminate();
-            throw new Error('OCR initialization was interrupted.');
-          }
-          await initializedWorker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-          if (disposed || initializationTimedOut) {
-            await initializedWorker.terminate();
-            throw new Error('OCR initialization was interrupted.');
-          }
-          return initializedWorker;
-        })();
-        const initializationTimeout = new Promise<never>((_, reject) => {
-          initializationTimeoutId = window.setTimeout(() => {
-            initializationTimedOut = true;
-            const error = new Error('Text reader initialization timed out.');
-            error.name = 'OCRTimeoutError';
-            reject(error);
-          }, 45_000);
-        });
-        try {
-          worker = await Promise.race([
-            workerInitialization,
-            initializationTimeout,
-            workerFailure,
-          ]);
-        } finally {
-          if (initializationTimeoutId !== undefined) {
-            window.clearTimeout(initializationTimeoutId);
-          }
-        }
-        if (disposed) {
-          await worker.terminate();
-          return;
-        }
-        workerRef.current = worker;
-        setStatusMessage('Keep the printed tag centered and steady.');
-        setCameraReady(true);
+        if (!disposed) setCameraReady(true);
       } catch (error) {
-        if (!disposed) {
-          setCameraError(getCameraErrorMessage(error));
-        }
+        if (!disposed) setCameraError(getCameraErrorMessage(error));
       }
     };
 
-    void startScanner();
+    void startCamera();
     return () => {
       disposed = true;
       stream?.getTracks().forEach((track) => track.stop());
+      if (streamRef.current === stream) streamRef.current = null;
       if (video) video.srcObject = null;
-      workerRef.current = null;
-      if (worker) void worker.terminate();
     };
   }, [active, retryCount]);
 
-  useEffect(() => {
-    if (!active || cameraReady || cameraError) return;
+  useEffect(
+    () => () => {
+      if (capturedPhotoUrl) URL.revokeObjectURL(capturedPhotoUrl);
+    },
+    [capturedPhotoUrl]
+  );
 
-    const intervalId = window.setInterval(
-      () => setPreparationSeconds((seconds) => seconds + 1),
-      1000
-    );
-    return () => window.clearInterval(intervalId);
-  }, [active, cameraError, cameraReady]);
+  const analyzePhoto = async () => {
+    const video = videoRef.current;
+    if (!video || analyzing) return;
 
-  useEffect(() => {
-    if (!active || !cameraReady) return;
+    setAnalysisError(null);
+    setAnalyzing(true);
+    try {
+      const photo = await capturePhoto(video);
+      const photoUrl = URL.createObjectURL(photo);
+      setCapturedPhotoUrl((previousUrl) => {
+        if (previousUrl) URL.revokeObjectURL(previousUrl);
+        return photoUrl;
+      });
 
-    let disposed = false;
-    let seconds = 3;
-    setSecondsRemaining(seconds);
-    const intervalId = window.setInterval(() => {
-      seconds -= 1;
-      setSecondsRemaining(seconds);
-      if (seconds > 0) return;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      video.srcObject = null;
+      setCameraReady(false);
 
-      window.clearInterval(intervalId);
-      const video = videoRef.current;
-      const worker = workerRef.current;
-      if (!video || !worker || video.videoWidth === 0 || video.videoHeight === 0) {
-        setReadError('The camera image was not ready. Keep the tag visible and try again.');
-        return;
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch('/api/asset-tag-ocr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/jpeg' },
+          body: photo,
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
       }
 
-      setSecondsRemaining(null);
-      setStatusMessage('Capturing several frames and improving clarity…');
-      void (async () => {
-        const candidates: OCRCandidate[] = [];
-        try {
-          for (let frame = 0; frame < 3; frame += 1) {
-            if (disposed) return;
-            const canvases = createOCRCanvases(video);
-            for (const canvas of canvases) {
-              const { data } = await worker.recognize(canvas);
-              const text = normalizeOCRText(data.text);
-              if (text) candidates.push({ text, confidence: data.confidence });
-            }
-            if (frame < 2) {
-              await new Promise((resolve) => window.setTimeout(resolve, 250));
-            }
-          }
+      const result = (await response.json()) as { text?: string; error?: string };
+      if (!response.ok) {
+        throw new Error(result.error || 'Could not read the text in this photo.');
+      }
+      const text = result.text?.trim();
+      if (!text) {
+        throw new Error('No clear text was found. Retake the photo closer to the label.');
+      }
+      onDetectedRef.current(text);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.name === 'AbortError'
+          ? 'Text analysis took too long. Try a closer, clearer photo.'
+          : error instanceof Error
+            ? error.message
+            : 'Could not read the text in this photo.';
+      setAnalysisError(message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
-          if (disposed) return;
-          if (candidates.length === 0) {
-            setReadError('No text was clear enough to read. Move closer, improve the lighting, and try again.');
-            return;
-          }
-
-          const grouped = new Map<string, OCRCandidate[]>();
-          for (const candidate of candidates) {
-            const key = candidate.text.toLocaleUpperCase();
-            grouped.set(key, [...(grouped.get(key) ?? []), candidate]);
-          }
-          const bestGroup = Array.from(grouped.values()).sort((left, right) => {
-            if (left.length !== right.length) return right.length - left.length;
-            const leftConfidence =
-              left.reduce((sum, candidate) => sum + candidate.confidence, 0) / left.length;
-            const rightConfidence =
-              right.reduce((sum, candidate) => sum + candidate.confidence, 0) / right.length;
-            return rightConfidence - leftConfidence;
-          })[0];
-          const bestCandidate = bestGroup.reduce((best, candidate) =>
-            candidate.confidence > best.confidence ? candidate : best
-          );
-          onDetectedRef.current(bestCandidate.text);
-        } catch (error: unknown) {
-          if (disposed) return;
-          console.error('Could not recognize text in the camera image:', error);
-          setReadError('Could not read the captured image. Keep the tag centered and try again.');
-        }
-      })();
-    }, 1000);
-
-    return () => {
-      disposed = true;
-      window.clearInterval(intervalId);
-    };
-  }, [active, cameraReady, captureAttempt]);
+  const retryCamera = () => {
+    setAnalysisError(null);
+    setCapturedPhotoUrl(null);
+    setRetryCount((count) => count + 1);
+  };
 
   if (!active) return null;
 
@@ -364,55 +204,77 @@ export function AssetTagCameraScanner({
         </div>
       ) : (
         <>
-          <div className="relative overflow-hidden rounded-md bg-black">
-            <video
-              ref={videoRef}
-              className="max-h-64 w-full object-contain"
-              aria-label="Live camera view for reading printed asset tag text"
-              autoPlay
-              muted
-              playsInline
-            />
-            {cameraReady && secondsRemaining !== null && (
-              <div
-                className="pointer-events-none absolute inset-x-[8%] top-1/2 h-16 -translate-y-1/2 rounded-md border-2 border-white/80 shadow-[0_0_0_999px_rgba(0,0,0,0.2)]"
-                aria-hidden="true"
+          <div className="overflow-hidden rounded-md bg-black">
+            {capturedPhotoUrl ? (
+              <div className="relative h-64 w-full">
+                <Image
+                  src={capturedPhotoUrl}
+                  alt="Captured image awaiting text analysis"
+                  fill
+                  unoptimized
+                  className="object-contain"
+                />
+              </div>
+            ) : (
+              <video
+                ref={videoRef}
+                className="max-h-64 w-full object-contain"
+                aria-label="Live camera view for photographing printed text"
+                autoPlay
+                muted
+                playsInline
               />
             )}
           </div>
-          <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
-            {readError
-              ? readError
-              : cameraReady && secondsRemaining !== null
-                ? `Hold the tag in the guide and keep steady. Capturing in ${secondsRemaining} seconds…`
-                : !cameraReady && preparationSeconds >= 15
-                  ? `${statusMessage} This may take a little longer on this phone.`
-                  : statusMessage}
+          <p
+            className="text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            {analyzing
+              ? 'Analyzing the photo… It is processed for text only and is not saved in the app.'
+              : analysisError ||
+                (capturedPhotoUrl
+                  ? 'Photo captured. Try again with a clearer image if needed.'
+                  : cameraReady
+                    ? 'Center the printed text, then take a photo.'
+                    : 'Starting camera…')}
           </p>
+          {!analyzing && cameraReady && (
+            <p className="text-xs text-muted-foreground">
+              The photo is sent to the AI reader for text analysis and is not saved by the app.
+            </p>
+          )}
         </>
       )}
       <div className="flex flex-wrap gap-2">
         {cameraError && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setRetryCount((count) => count + 1)}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={retryCamera}>
             Try again
           </Button>
         )}
-        {readError && (
+        {!cameraError && cameraReady && (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void analyzePhoto()}
+            disabled={analyzing}
+          >
+            {analyzing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            {analyzing ? 'Analyzing…' : 'Take photo & read text'}
+          </Button>
+        )}
+        {!cameraError && (analysisError || capturedPhotoUrl) && !cameraReady && (
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
-              setReadError(null);
-              setCaptureAttempt((attempt) => attempt + 1);
-            }}
+            onClick={retryCamera}
+            disabled={analyzing}
           >
-            Capture again
+            Retake photo
           </Button>
         )}
         <Button type="button" variant="outline" size="sm" onClick={onClose}>

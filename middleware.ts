@@ -29,12 +29,6 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
-  if (request.nextUrl.pathname.startsWith('/ocr/')) {
-    const response = NextResponse.next();
-    applySecurityHeaders(response);
-    return response;
-  }
-
   const hasSessionCookie = request.cookies.has(SESSION_COOKIE);
   const isLoginPage = request.nextUrl.pathname === '/login';
 
