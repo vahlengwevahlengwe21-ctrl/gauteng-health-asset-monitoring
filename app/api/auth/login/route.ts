@@ -40,14 +40,14 @@ export async function POST(request: Request) {
   try {
     if (!(await checkLoginRateLimit(request, body.persal_number))) {
       return NextResponse.json(
-        { error: 'Too many sign-in attempts. Wait 15 minutes and try again.' },
+        { error: 'Login failed.' },
         { status: 429, headers: { 'Retry-After': '900' } }
       );
     }
     const login = await verifyLoginCredentials(body.persal_number, body.password);
     if (!login) {
       return NextResponse.json(
-        { error: 'Sign-in failed. Check your PERSAL number and password or contact the Super Administrator.' },
+        { error: 'Login failed.' },
         { status: 401 }
       );
     }

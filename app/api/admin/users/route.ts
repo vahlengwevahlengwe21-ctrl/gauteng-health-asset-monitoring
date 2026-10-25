@@ -21,6 +21,8 @@ type UserRow = {
   role: AppRole;
   is_active: number;
   is_protected: number;
+  failed_login_attempts: number;
+  is_locked: number;
   created_at: string;
 } & RowDataPacket;
 
@@ -31,8 +33,11 @@ export async function GET(request: Request) {
     const [users] = await getDbPool().query<UserRow[]>(
       `SELECT id, display_name, surname, persal_number, email,
         contact_number, district,
-        role, is_active, is_protected, created_at
-      FROM app_users WHERE is_protected = FALSE ORDER BY display_name`
+        role, is_active, is_protected, failed_login_attempts,
+        (locked_until IS NOT NULL) AS is_locked, created_at
+      FROM app_users
+      WHERE is_protected = FALSE OR locked_until IS NOT NULL
+      ORDER BY display_name`
     );
     return NextResponse.json(users);
   } catch (error) {

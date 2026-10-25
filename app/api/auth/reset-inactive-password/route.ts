@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   try {
     if (!(await checkLoginRateLimit(request, body.persal_number))) {
       return NextResponse.json(
-        { error: 'Too many sign-in attempts. Wait 15 minutes and try again.' },
+        { error: 'Login failed.' },
         { status: 429, headers: { 'Retry-After': '900' } }
       );
     }
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     }
     if (!result) {
       return NextResponse.json(
-        { error: 'Password reset failed. Check your current password or contact the Super Administrator.' },
+        { error: 'Login failed.' },
         { status: 401 }
       );
     }

@@ -43,6 +43,7 @@ export function canAccessDistrict(
 }
 
 type SessionRow = AuthenticatedUser & {
+  locked_until: string | null;
   password_reset_required: number;
 } & RowDataPacket;
 type LoginRow = {
@@ -114,6 +115,7 @@ export async function authenticateRequest(
   const [rows] = await getDbPool().execute<SessionRow[]>(
     `SELECT u.id, u.display_name, u.surname, u.persal_number, u.email,
       u.contact_number, u.district, u.role,
+      u.locked_until,
       CASE WHEN u.last_login_at IS NULL OR (
         u.role <> 'super_administrator' AND
         u.last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
@@ -121,7 +123,7 @@ export async function authenticateRequest(
     FROM app_sessions s
     JOIN app_users u ON u.id = s.user_id
     WHERE s.token_hash = ? AND s.expires_at > UTC_TIMESTAMP()
-      AND u.is_active = TRUE`,
+      AND u.is_active = TRUE AND u.locked_until IS NULL`,
     [hashToken(token)]
   );
   const user = rows[0];
@@ -133,7 +135,11 @@ export async function authenticateRequest(
     );
     return null;
   }
-  const { password_reset_required: _passwordResetRequired, ...authenticatedUser } = user;
+  const {
+    password_reset_required: _passwordResetRequired,
+    locked_until: _lockedUntil,
+    ...authenticatedUser
+  } = user;
   return authenticatedUser;
 }
 
@@ -298,16 +304,32 @@ export async function verifyLoginCredentials(
       return null;
     }
 
+    if (user.locked_until !== null) {
+      await derivePassword(password, Buffer.alloc(16, 0x51));
+      await connection.commit();
+      return null;
+    }
+
     const valid =
       user.is_active === 1 &&
       (await verifyPassword(password, user.password_hash));
 
     if (!valid) {
       await connection.execute(
-        `UPDATE app_users SET failed_login_attempts = LEAST(failed_login_attempts + 1, 255)
+        `UPDATE app_users SET
+          locked_until = CASE
+            WHEN failed_login_attempts >= 4 THEN COALESCE(locked_until, UTC_TIMESTAMP())
+            ELSE locked_until
+          END,
+          failed_login_attempts = LEAST(failed_login_attempts + 1, 5)
         WHERE id = ?`,
         [user.id]
       );
+      if (user.failed_login_attempts >= 4) {
+        await connection.execute('DELETE FROM app_sessions WHERE user_id = ?', [
+          user.id,
+        ]);
+      }
       await connection.commit();
       return null;
     }
@@ -355,10 +377,13 @@ export async function resetInactiveUserPassword(
         password_hash: string;
         is_active: number;
         role: AppRole;
+        failed_login_attempts: number;
+        locked_until: string | null;
         password_reset_required: number;
       } & RowDataPacket)[]
     >(
       `SELECT id, password_hash, is_active, role,
+        failed_login_attempts, locked_until,
         CASE WHEN last_login_at IS NULL OR (
           role <> 'super_administrator' AND
           last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
@@ -372,15 +397,30 @@ export async function resetInactiveUserPassword(
       await connection.commit();
       return null;
     }
+    if (user.locked_until !== null) {
+      await derivePassword(currentPassword, Buffer.alloc(16, 0x51));
+      await connection.commit();
+      return null;
+    }
     if (
       user.is_active !== 1 ||
       !(await verifyPassword(currentPassword, user.password_hash))
     ) {
       await connection.execute(
-        `UPDATE app_users SET failed_login_attempts = LEAST(failed_login_attempts + 1, 255)
+        `UPDATE app_users SET
+          locked_until = CASE
+            WHEN failed_login_attempts >= 4 THEN COALESCE(locked_until, UTC_TIMESTAMP())
+            ELSE locked_until
+          END,
+          failed_login_attempts = LEAST(failed_login_attempts + 1, 5)
         WHERE id = ?`,
         [user.id]
       );
+      if (user.failed_login_attempts >= 4) {
+        await connection.execute('DELETE FROM app_sessions WHERE user_id = ?', [
+          user.id,
+        ]);
+      }
       await connection.commit();
       return null;
     }

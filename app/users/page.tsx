@@ -28,6 +28,9 @@ type ManagedUser = {
   district: string | null;
   role: AppRole;
   is_active: number;
+  is_protected: number;
+  failed_login_attempts: number;
+  is_locked: number;
 };
 
 export default function UsersPage() {
@@ -53,6 +56,7 @@ export default function UsersPage() {
     value: string;
   } | null>(null);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [unlockingUserId, setUnlockingUserId] = useState<string | null>(null);
   const [profileDraft, setProfileDraft] = useState({
     display_name: '',
     surname: '',
@@ -297,6 +301,28 @@ export default function UsersPage() {
     }
   };
 
+  const unlockUser = async (user: ManagedUser) => {
+    setError(null);
+    setMessage(null);
+    setUnlockingUserId(user.id);
+    try {
+      const response = await fetch(
+        `/api/admin/users/${encodeURIComponent(user.id)}/unlock`,
+        { method: 'POST' }
+      );
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error || 'Unable to unlock the user account.');
+      }
+      setMessage(`${user.display_name}'s account is unlocked.`);
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to unlock the user account.');
+    } finally {
+      setUnlockingUserId(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -482,12 +508,22 @@ export default function UsersPage() {
                     <p className="mt-1 text-xs font-medium text-primary">
                       {ROLE_DETAILS[user.role].label}
                     </p>
+                    {Boolean(user.is_protected) && (
+                      <p className="mt-1 text-xs font-semibold text-warning">
+                        Protected administrator account
+                      </p>
+                    )}
                     <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
                       {ROLE_DETAILS[user.role].description}
                     </p>
+                    {Boolean(user.is_locked) && (
+                      <p className="mt-2 text-sm font-semibold text-destructive">
+                        Locked after 5 failed login attempts
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    {isSuperAdministrator && (
+                    {isSuperAdministrator && !user.is_protected && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -499,73 +535,78 @@ export default function UsersPage() {
                           : 'Reset password'}
                       </Button>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (editingUserId === user.id) {
-                          setEditingUserId(null);
-                        } else {
-                          editUserProfile(user);
-                        }
-                      }}
-                    >
-                      {editingUserId === user.id ? 'Cancel profile edit' : 'Edit profile'}
-                    </Button>
-                    <Select
-                      value={user.role}
-                      onValueChange={(nextRole) =>
-                        updateUser(
-                          user,
-                          nextRole as AppRole,
-                          Boolean(user.is_active)
-                        )
-                      }
-                    >
-                      <SelectTrigger className="w-48">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {APP_ROLES.map((item) => (
-                          <SelectItem key={item} value={item}>
-                            {ROLE_DETAILS[item].label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={user.district ?? undefined}
-                      onValueChange={(nextDistrict) =>
-                        updateUser(
-                          user,
-                          user.role,
-                          Boolean(user.is_active),
-                          nextDistrict
-                        )
-                      }
-                    >
-                      <SelectTrigger className="w-48" aria-label="Assign district">
-                        <SelectValue placeholder="Assign district" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {GAUTENG_DISTRICTS.map((item) => (
-                          <SelectItem key={item} value={item}>
-                            {item}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant={user.is_active ? 'outline' : 'destructive'}
-                      size="sm"
-                      onClick={() =>
-                        updateUser(user, user.role, !Boolean(user.is_active))
-                      }
-                    >
-                      {user.is_active ? 'Deactivate' : 'Reactivate'}
-                    </Button>
+                    {isSuperAdministrator && Boolean(user.is_locked) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => unlockUser(user)}
+                        disabled={unlockingUserId !== null}
+                      >
+                        {unlockingUserId === user.id ? 'Unlocking…' : 'Unlock account'}
+                      </Button>
+                    )}
+                    {!user.is_protected && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (editingUserId === user.id) {
+                              setEditingUserId(null);
+                            } else {
+                              editUserProfile(user);
+                            }
+                          }}
+                        >
+                          {editingUserId === user.id ? 'Cancel profile edit' : 'Edit profile'}
+                        </Button>
+                        <Select
+                          value={user.role}
+                          onValueChange={(nextRole) =>
+                            updateUser(user, nextRole as AppRole, Boolean(user.is_active))
+                          }
+                        >
+                          <SelectTrigger className="w-48">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {APP_ROLES.map((item) => (
+                              <SelectItem key={item} value={item}>
+                                {ROLE_DETAILS[item].label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={user.district ?? undefined}
+                          onValueChange={(nextDistrict) =>
+                            updateUser(user, user.role, Boolean(user.is_active), nextDistrict)
+                          }
+                        >
+                          <SelectTrigger className="w-48" aria-label="Assign district">
+                            <SelectValue placeholder="Assign district" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {GAUTENG_DISTRICTS.map((item) => (
+                              <SelectItem key={item} value={item}>
+                                {item}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant={user.is_active ? 'outline' : 'destructive'}
+                          size="sm"
+                          onClick={() =>
+                            updateUser(user, user.role, !Boolean(user.is_active))
+                          }
+                        >
+                          {user.is_active ? 'Deactivate' : 'Reactivate'}
+                        </Button>
+                      </>
+                    )}
                   </div>
-                  {temporaryPassword?.userId === user.id && (
+                  {!user.is_protected && temporaryPassword?.userId === user.id && (
                     <div className="grid gap-3 rounded-md border border-warning/40 bg-warning/10 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end">
                       <div className="space-y-2">
                         <Label htmlFor={`temporary-password-${user.id}`}>

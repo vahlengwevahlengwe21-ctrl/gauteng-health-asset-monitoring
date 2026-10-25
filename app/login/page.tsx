@@ -51,7 +51,7 @@ export default function LoginPage() {
         passwordResetRequired?: boolean;
       };
       if (!response.ok) {
-        setError(result.error || 'Sign-in failed.');
+        setError('Login failed.');
         return;
       }
       if (result.passwordResetRequired) {
