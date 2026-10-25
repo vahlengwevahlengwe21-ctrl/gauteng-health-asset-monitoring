@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 const MAX_IMAGE_BYTES = 3_000_000;
 const PROVIDER_TIMEOUT_MS = 9_000;
-const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 function jsonResponse(body: { text?: string; error?: string }, status = 200) {
   return NextResponse.json(body, {
