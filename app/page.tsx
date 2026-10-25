@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { Header } from '@/components/header';
 import { StatsCards } from '@/components/stats-cards';
 import { AssetTable } from '@/components/asset-table';
@@ -27,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Camera, Plus, Search, Loader2, X, Download, ShieldCheck, ScanSearch } from 'lucide-react';
+import { Camera, Plus, Search, Loader2, X, Download, ShieldCheck, ScanSearch, ChartNoAxesCombined } from 'lucide-react';
 import { fetchAssets, createAsset, updateAsset, deleteAsset } from '@/lib/assets';
 import { fetchFacilities } from '@/lib/facilities';
 import { createDisposalRequest } from '@/lib/disposals';
@@ -239,6 +240,8 @@ export default function Home() {
     currentUser?.role === 'chief_director';
   const canManageAssets =
     hasFullOperationalAccess || currentUser?.role === 'admin_clerk';
+  const canViewReports =
+    currentUser !== null && currentUser.role !== 'admin_clerk';
   const canRequestDisposal = canManageAssets;
   const canReviewDisposal = hasFullOperationalAccess;
   const canReviewLostReports =
@@ -476,6 +479,14 @@ export default function Home() {
                 {filterStatus === 'Verification Due'
                   ? 'Show all assets'
                   : 'Verification due'}
+              </Button>
+            )}
+            {canViewReports && (
+              <Button variant="outline" asChild>
+                <Link href="/reports">
+                  <ChartNoAxesCombined className="mr-2 h-4 w-4" />
+                  Reports
+                </Link>
               </Button>
             )}
             <Button
