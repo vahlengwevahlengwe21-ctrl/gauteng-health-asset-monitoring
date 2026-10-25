@@ -11,6 +11,99 @@ type AssetTagCameraScannerProps = {
   onClose: () => void;
 };
 
+type OCRCandidate = {
+  text: string;
+  confidence: number;
+};
+
+function createOCRCanvases(video: HTMLVideoElement): HTMLCanvasElement[] {
+  const cropWidth = video.videoWidth * 0.9;
+  const cropHeight = video.videoHeight * 0.5;
+  const sourceX = (video.videoWidth - cropWidth) / 2;
+  const sourceY = (video.videoHeight - cropHeight) / 2;
+  const width = Math.min(Math.round(cropWidth * 2), 2400);
+  const height = Math.round((width / cropWidth) * cropHeight);
+  const canvases = [document.createElement('canvas'), document.createElement('canvas')];
+
+  for (const canvas of canvases) {
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not prepare the camera image for text recognition.');
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(
+      video,
+      sourceX,
+      sourceY,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      width,
+      height
+    );
+  }
+
+  const enhancedContext = canvases[1].getContext('2d');
+  if (!enhancedContext) throw new Error('Could not enhance the camera image.');
+  const image = enhancedContext.getImageData(0, 0, width, height);
+  const histogram = new Array<number>(256).fill(0);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const gray = Math.round(
+      image.data[index] * 0.299 +
+        image.data[index + 1] * 0.587 +
+        image.data[index + 2] * 0.114
+    );
+    image.data[index] = gray;
+    image.data[index + 1] = gray;
+    image.data[index + 2] = gray;
+    histogram[gray] += 1;
+  }
+
+  const pixelCount = width * height;
+  let weightedTotal = 0;
+  for (let value = 0; value < histogram.length; value += 1) {
+    weightedTotal += value * histogram[value];
+  }
+  let backgroundWeight = 0;
+  let backgroundTotal = 0;
+  let threshold = 160;
+  let bestVariance = 0;
+  for (let value = 0; value < histogram.length; value += 1) {
+    backgroundWeight += histogram[value];
+    if (backgroundWeight === 0) continue;
+    const foregroundWeight = pixelCount - backgroundWeight;
+    if (foregroundWeight === 0) break;
+    backgroundTotal += value * histogram[value];
+    const backgroundMean = backgroundTotal / backgroundWeight;
+    const foregroundMean = (weightedTotal - backgroundTotal) / foregroundWeight;
+    const variance =
+      backgroundWeight *
+      foregroundWeight *
+      (backgroundMean - foregroundMean) ** 2;
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      threshold = value;
+    }
+  }
+
+  for (let index = 0; index < image.data.length; index += 4) {
+    const gray = image.data[index];
+    const enhanced = gray < threshold ? 0 : 255;
+    image.data[index] = enhanced;
+    image.data[index + 1] = enhanced;
+    image.data[index + 2] = enhanced;
+  }
+  enhancedContext.putImageData(image, 0, 0);
+
+  return canvases;
+}
+
+function normalizeOCRText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 function getCameraErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === 'NotAllowedError') {
     return 'The browser blocked camera access. Choose Allow if prompted. If no prompt appears, open this site’s browser permissions, set Camera to Allow, then tap Try again.';
@@ -66,7 +159,11 @@ export function AssetTagCameraScanner({
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: 'environment' } },
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
         });
         if (disposed || !video) {
           stream.getTracks().forEach((track) => track.stop());
@@ -134,38 +231,53 @@ export function AssetTagCameraScanner({
         return;
       }
 
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const context = canvas.getContext('2d');
-      if (!context) {
-        setReadError('Could not capture the camera image. Try again.');
-        return;
-      }
-
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
       setSecondsRemaining(null);
-      setStatusMessage('Reading the captured image…');
-      void worker
-        .recognize(canvas)
-        .then(({ data }) => {
+      setStatusMessage('Capturing several frames and improving clarity…');
+      void (async () => {
+        const candidates: OCRCandidate[] = [];
+        try {
+          for (let frame = 0; frame < 3; frame += 1) {
+            if (disposed) return;
+            const canvases = createOCRCanvases(video);
+            for (const canvas of canvases) {
+              const { data } = await worker.recognize(canvas);
+              const text = normalizeOCRText(data.text);
+              if (text) candidates.push({ text, confidence: data.confidence });
+            }
+            if (frame < 2) {
+              await new Promise((resolve) => window.setTimeout(resolve, 250));
+            }
+          }
+
           if (disposed) return;
-          const text = data.text
-            .split(/\r?\n/)
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .join(' ');
-          if (!text) {
+          if (candidates.length === 0) {
             setReadError('No text was clear enough to read. Move closer, improve the lighting, and try again.');
             return;
           }
-          onDetectedRef.current(text);
-        })
-        .catch((error: unknown) => {
+
+          const grouped = new Map<string, OCRCandidate[]>();
+          for (const candidate of candidates) {
+            const key = candidate.text.toLocaleUpperCase();
+            grouped.set(key, [...(grouped.get(key) ?? []), candidate]);
+          }
+          const bestGroup = Array.from(grouped.values()).sort((left, right) => {
+            if (left.length !== right.length) return right.length - left.length;
+            const leftConfidence =
+              left.reduce((sum, candidate) => sum + candidate.confidence, 0) / left.length;
+            const rightConfidence =
+              right.reduce((sum, candidate) => sum + candidate.confidence, 0) / right.length;
+            return rightConfidence - leftConfidence;
+          })[0];
+          const bestCandidate = bestGroup.reduce((best, candidate) =>
+            candidate.confidence > best.confidence ? candidate : best
+          );
+          onDetectedRef.current(bestCandidate.text);
+        } catch (error: unknown) {
           if (disposed) return;
           console.error('Could not recognize text in the camera image:', error);
           setReadError('Could not read the captured image. Keep the tag centered and try again.');
-        });
+        }
+      })();
     }, 1000);
 
     return () => {
