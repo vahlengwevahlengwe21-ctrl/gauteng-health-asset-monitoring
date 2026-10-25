@@ -183,12 +183,16 @@ export function AssetTagCameraScanner({
         const { createWorker, PSM } = await import('tesseract.js');
         let initializationTimedOut = false;
         let initializationTimeoutId: number | undefined;
+        let rejectWorkerFailure: (error: unknown) => void = () => {};
+        const workerFailure = new Promise<never>((_, reject) => {
+          rejectWorkerFailure = reject;
+        });
         const workerInitialization = (async () => {
           const initializedWorker = await createWorker('eng', 1, {
             workerPath: '/ocr/worker.min.js',
-            corePath: '/ocr',
+            corePath: '/ocr/tesseract-core-lstm.wasm.js',
             langPath: '/ocr/4.0.0_best_int',
-            workerBlobURL: true,
+            workerBlobURL: false,
             logger: ({ status, progress }) => {
               if (disposed) return;
               const phase =
@@ -196,11 +200,17 @@ export function AssetTagCameraScanner({
                   ? 'Loading the OCR engine'
                   : status === 'loading language traineddata'
                     ? 'Loading the English text model'
-                    : 'Initializing the OCR engine';
+                    : status === 'initializing api'
+                      ? 'Starting the OCR reader'
+                      : 'Preparing the OCR reader';
               const percent = Number.isFinite(progress)
                 ? ` (${Math.round(progress * 100)}%)`
                 : '';
               setStatusMessage(`${phase}${percent}…`);
+            },
+            errorHandler: (error: unknown) => {
+              console.error('OCR worker failed during initialization:', error);
+              rejectWorkerFailure(error);
             },
           });
           if (disposed || initializationTimedOut) {
@@ -220,10 +230,14 @@ export function AssetTagCameraScanner({
             const error = new Error('Text reader initialization timed out.');
             error.name = 'OCRTimeoutError';
             reject(error);
-          }, 60_000);
+          }, 45_000);
         });
         try {
-          worker = await Promise.race([workerInitialization, initializationTimeout]);
+          worker = await Promise.race([
+            workerInitialization,
+            initializationTimeout,
+            workerFailure,
+          ]);
         } finally {
           if (initializationTimeoutId !== undefined) {
             window.clearTimeout(initializationTimeoutId);
