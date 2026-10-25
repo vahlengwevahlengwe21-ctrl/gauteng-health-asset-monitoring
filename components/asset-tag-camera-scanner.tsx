@@ -210,7 +210,9 @@ export function AssetTagCameraScanner({
             },
             errorHandler: (error: unknown) => {
               console.error('OCR worker failed during initialization:', error);
-              rejectWorkerFailure(error);
+              rejectWorkerFailure(
+                error instanceof Error ? error : new Error(String(error))
+              );
             },
           });
           if (disposed || initializationTimedOut) {
