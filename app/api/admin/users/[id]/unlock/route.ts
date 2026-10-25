@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import type { RowDataPacket } from 'mysql2';
-import { isSameOriginRequest, requireUser } from '@/lib/auth';
+import {
+  clearLoginAccountRateLimit,
+  isSameOriginRequest,
+  requireUser,
+} from '@/lib/auth';
 import { getDbPool } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-type UserRow = RowDataPacket;
+type UserRow = { persal_number: string } & RowDataPacket;
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: RouteContext) {
@@ -20,7 +24,7 @@ export async function POST(request: Request, { params }: RouteContext) {
   try {
     await connection.beginTransaction();
     const [users] = await connection.execute<UserRow[]>(
-      'SELECT id FROM app_users WHERE id = ? AND is_protected = FALSE FOR UPDATE',
+      'SELECT persal_number FROM app_users WHERE id = ? AND is_protected = FALSE FOR UPDATE',
       [id]
     );
     if (users.length === 0) {
@@ -31,6 +35,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       'UPDATE app_users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?',
       [id]
     );
+    await clearLoginAccountRateLimit(connection, users[0].persal_number);
     await connection.commit();
     return NextResponse.json({ success: true });
   } catch (error) {

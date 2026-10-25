@@ -51,7 +51,9 @@ export default function LoginPage() {
         passwordResetRequired?: boolean;
       };
       if (!response.ok) {
-        setError('Login failed.');
+        setError(
+          'Login failed. If you have made five unsuccessful attempts or cannot remember your password, contact your administrator to unlock your account or issue a temporary password. You can sign in as soon as they confirm the change.'
+        );
         return;
       }
       if (result.passwordResetRequired) {

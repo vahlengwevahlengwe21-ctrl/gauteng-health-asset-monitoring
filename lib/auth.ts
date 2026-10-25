@@ -6,6 +6,7 @@ import {
 } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { RowDataPacket } from 'mysql2';
+import type { PoolConnection } from 'mysql2/promise';
 import { NextResponse } from 'next/server';
 import { getDbPool } from './db';
 import { APP_ROLES, isSystemWideAdministrator, type AppRole } from './roles';
@@ -486,7 +487,7 @@ function loginRateLimitKeys(
         ]
       : []),
     {
-      key: createHash('sha256').update(`persal:${persalNumber}`).digest('hex'),
+      key: loginAccountRateLimitKey(persalNumber),
       limit: LOGIN_RATE_LIMIT_PER_ACCOUNT,
     },
   ];
@@ -585,4 +586,20 @@ export async function clearLoginRateLimit(
     `DELETE FROM app_login_rate_limits WHERE key_hash IN (${placeholders})`,
     keys
   );
+}
+
+export async function clearLoginAccountRateLimit(
+  connection: PoolConnection,
+  persalNumber: string
+): Promise<void> {
+  await connection.execute(
+    'DELETE FROM app_login_rate_limits WHERE key_hash = ?',
+    [loginAccountRateLimitKey(persalNumber)]
+  );
+}
+
+function loginAccountRateLimitKey(persalNumber: string): string {
+  return createHash('sha256')
+    .update(`persal:${persalNumber}`)
+    .digest('hex');
 }

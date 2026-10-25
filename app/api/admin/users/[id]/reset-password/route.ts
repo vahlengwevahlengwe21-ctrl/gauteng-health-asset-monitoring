@@ -1,13 +1,19 @@
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { RowDataPacket } from 'mysql2';
-import { hashPassword, isSameOriginRequest, requireUser } from '@/lib/auth';
+import {
+  clearLoginAccountRateLimit,
+  hashPassword,
+  isSameOriginRequest,
+  requireUser,
+} from '@/lib/auth';
 import { getDbPool } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 type UserRow = {
   is_protected: number;
+  persal_number: string;
 } & RowDataPacket;
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -26,7 +32,7 @@ export async function POST(request: Request, { params }: RouteContext) {
   try {
     await connection.beginTransaction();
     const [users] = await connection.execute<UserRow[]>(
-      'SELECT is_protected FROM app_users WHERE id = ? FOR UPDATE',
+      'SELECT is_protected, persal_number FROM app_users WHERE id = ? FOR UPDATE',
       [id]
     );
     if (users.length === 0) {
@@ -47,6 +53,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       [passwordHash, id]
     );
     await connection.execute('DELETE FROM app_sessions WHERE user_id = ?', [id]);
+    await clearLoginAccountRateLimit(connection, users[0].persal_number);
     await connection.commit();
 
     return NextResponse.json({ temporaryPassword });
