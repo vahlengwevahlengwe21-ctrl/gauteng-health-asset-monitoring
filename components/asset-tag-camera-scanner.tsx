@@ -232,7 +232,7 @@ export function AssetTagCameraScanner({
             aria-live="polite"
           >
             {analyzing
-              ? 'Analyzing the photo… It is processed for text only and is not saved in the app.'
+              ? "Sending the photo to OpenAI for text analysis… The app does not save it; OpenAI's retention is governed by its policies."
               : analysisError ||
                 (capturedPhotoUrl
                   ? 'Photo captured. Try again with a clearer image if needed.'
@@ -242,7 +242,7 @@ export function AssetTagCameraScanner({
           </p>
           {!analyzing && cameraReady && (
             <p className="text-xs text-muted-foreground">
-              The photo is sent to the AI reader for text analysis and is not saved by the app.
+              The photo is sent to OpenAI for text analysis and is not saved by the app. OpenAI&apos;s retention is governed by its policies.
             </p>
           )}
         </>

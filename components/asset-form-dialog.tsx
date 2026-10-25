@@ -294,7 +294,7 @@ export function AssetFormDialog({
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Type the tag or take a clear photo of its printed text. The photo is sent for text analysis, is not saved in the app, and the result should be checked before saving.
+                Type the tag or take a clear photo of its printed text. The photo is sent to OpenAI for text analysis and is not saved by the app; OpenAI&apos;s retention is governed by its policies. Check the transcription before saving.
               </p>
             </div>
             <div className="space-y-2">
