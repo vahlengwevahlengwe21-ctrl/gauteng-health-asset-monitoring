@@ -17,10 +17,13 @@ import {
 import type { AuthenticatedUser } from '@/lib/auth';
 import { ROLE_DETAILS } from '@/lib/roles';
 
+type SystemHealth = 'checking' | 'online' | 'offline' | 'unavailable';
+
 export function Header() {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth>('checking');
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -39,6 +42,66 @@ export function Header() {
         console.error('Failed to load the signed-in user:', error);
       });
   }, [router]);
+
+  useEffect(() => {
+    let disposed = false;
+    let activeController: AbortController | undefined;
+    let timeoutId: number | undefined;
+
+    const checkHealth = async () => {
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      const requestTimeoutId = window.setTimeout(() => controller.abort(), 8000);
+      timeoutId = requestTimeoutId;
+
+      try {
+        const response = await fetch('/api/health', {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const result = (await response.json()) as { status?: string };
+        if (!disposed && activeController === controller) {
+          setSystemHealth(response.ok && result.status === 'ok' ? 'online' : 'unavailable');
+        }
+      } catch {
+        if (!disposed && activeController === controller) {
+          setSystemHealth(navigator.onLine ? 'unavailable' : 'offline');
+        }
+      } finally {
+        window.clearTimeout(requestTimeoutId);
+        if (activeController === controller) {
+          activeController = undefined;
+          timeoutId = undefined;
+        }
+      }
+    };
+
+    const checkWhenVisible = () => {
+      if (document.visibilityState === 'visible') void checkHealth();
+    };
+    const handleOffline = () => {
+      activeController?.abort();
+      setSystemHealth('offline');
+    };
+    const handleOnline = () => void checkHealth();
+
+    void checkHealth();
+    const intervalId = window.setInterval(checkWhenVisible, 30_000);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', checkWhenVisible);
+
+    return () => {
+      disposed = true;
+      activeController?.abort();
+      window.clearInterval(intervalId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', checkWhenVisible);
+    };
+  }, []);
 
   const signOut = async () => {
     const response = await fetch('/api/auth/logout', { method: 'POST' });
@@ -79,12 +142,36 @@ export function Header() {
               </p>
             </div>
           </Link>
-          <div className="flex items-center gap-2 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
-            </span>
-            System Live
+          <div
+            className="flex items-center gap-2 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground"
+            role="status"
+            aria-live="polite"
+            title={
+              systemHealth === 'online'
+                ? 'Database connection is working.'
+                : systemHealth === 'offline'
+                  ? 'This device is offline.'
+                  : systemHealth === 'unavailable'
+                    ? 'The app could not reach the database.'
+                    : 'Checking the database connection.'
+            }
+          >
+            <span
+              className={`inline-flex h-2 w-2 rounded-full ${
+                systemHealth === 'online'
+                  ? 'bg-success'
+                  : systemHealth === 'checking'
+                    ? 'animate-pulse bg-muted-foreground'
+                    : 'bg-destructive'
+              }`}
+            />
+            {systemHealth === 'online'
+              ? 'System Live'
+              : systemHealth === 'offline'
+                ? 'Network Offline'
+                : systemHealth === 'unavailable'
+                  ? 'System Unavailable'
+                  : 'Checking System'}
           </div>
         </div>
         <div className="flex items-center justify-end gap-3 border-t border-border py-2">
