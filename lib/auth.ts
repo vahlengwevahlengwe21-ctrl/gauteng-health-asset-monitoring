@@ -463,7 +463,9 @@ export async function resetInactiveUserPassword(
 const LOGIN_RATE_WINDOW_MINUTES = 15;
 const LOGIN_RATE_LIMIT_PER_ACCOUNT = 10;
 const LOGIN_RATE_LIMIT_PER_ADDRESS = 100;
-let loginRateCleanupCounter = 0;
+const PHOTO_OCR_RATE_LIMIT_PER_USER = 10;
+const PHOTO_OCR_RATE_LIMIT_PER_ADDRESS = 40;
+let rateLimitCleanupCounter = 0;
 
 function loginRateLimitKeys(
   request: Request,
@@ -494,25 +496,60 @@ export async function checkLoginRateLimit(
   request: Request,
   persalNumber: string
 ): Promise<boolean> {
-  const limits = loginRateLimitKeys(request, persalNumber);
-  for (const { key } of limits) {
-    await getDbPool().execute(
-      `INSERT INTO app_login_rate_limits (key_hash, window_started_at, attempts)
-      VALUES (?, UTC_TIMESTAMP(), 1)
-      ON DUPLICATE KEY UPDATE
-        attempts = IF(
-          window_started_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE),
-          1,
-          attempts + 1
-        ),
-        window_started_at = IF(
-          window_started_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE),
-          UTC_TIMESTAMP(),
-          window_started_at
-        )`,
-      [key, LOGIN_RATE_WINDOW_MINUTES, LOGIN_RATE_WINDOW_MINUTES]
-    );
-  }
+  return checkRateLimit(loginRateLimitKeys(request, persalNumber));
+}
+
+export async function checkPhotoOcrRateLimit(
+  request: Request,
+  userId: string
+): Promise<boolean> {
+  const address =
+    request.headers.get('cf-connecting-ip') ??
+    request.headers.get('x-real-ip') ??
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    '';
+  const limits = [
+    {
+      key: createHash('sha256').update(`photo-user:${userId}`).digest('hex'),
+      limit: PHOTO_OCR_RATE_LIMIT_PER_USER,
+    },
+    ...(address
+      ? [
+          {
+            key: createHash('sha256')
+              .update(`photo-address:${address}`)
+              .digest('hex'),
+            limit: PHOTO_OCR_RATE_LIMIT_PER_ADDRESS,
+          },
+        ]
+      : []),
+  ];
+  return checkRateLimit(limits);
+}
+
+async function checkRateLimit(
+  limits: { key: string; limit: number }[]
+): Promise<boolean> {
+  await Promise.all(
+    limits.map(({ key }) =>
+      getDbPool().execute(
+        `INSERT INTO app_login_rate_limits (key_hash, window_started_at, attempts)
+        VALUES (?, UTC_TIMESTAMP(), 1)
+        ON DUPLICATE KEY UPDATE
+          attempts = IF(
+            window_started_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE),
+            1,
+            attempts + 1
+          ),
+          window_started_at = IF(
+            window_started_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE),
+            UTC_TIMESTAMP(),
+            window_started_at
+          )`,
+        [key, LOGIN_RATE_WINDOW_MINUTES, LOGIN_RATE_WINDOW_MINUTES]
+      )
+    )
+  );
   const keys = limits.map(({ key }) => key);
   const placeholders = keys.map(() => '?').join(', ');
   const [rows] = await getDbPool().execute<
@@ -522,8 +559,8 @@ export async function checkLoginRateLimit(
     WHERE key_hash IN (${placeholders})`,
     keys
   );
-  loginRateCleanupCounter += 1;
-  if (loginRateCleanupCounter % 100 === 0) {
+  rateLimitCleanupCounter += 1;
+  if (rateLimitCleanupCounter % 100 === 0) {
     await getDbPool().execute(
       `DELETE FROM app_login_rate_limits
       WHERE window_started_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)

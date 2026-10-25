@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { isSameOriginRequest, requireUser } from '@/lib/auth';
+import {
+  checkPhotoOcrRateLimit,
+  isSameOriginRequest,
+  requireUser,
+} from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,10 +11,14 @@ const MAX_IMAGE_BYTES = 3_000_000;
 const PROVIDER_TIMEOUT_MS = 9_000;
 const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
-function jsonResponse(body: { text?: string; error?: string }, status = 200) {
+function jsonResponse(
+  body: { text?: string; error?: string },
+  status = 200,
+  headers: Record<string, string> = {}
+) {
   return NextResponse.json(body, {
     status,
-    headers: { 'Cache-Control': 'no-store, max-age=0' },
+    headers: { 'Cache-Control': 'no-store, max-age=0', ...headers },
   });
 }
 
@@ -43,12 +51,41 @@ export async function POST(request: Request) {
     return jsonResponse({ error: 'Photo is too large. Retake it closer to the text.' }, 413);
   }
 
+  if (!(await checkPhotoOcrRateLimit(request, auth.user.id))) {
+    return jsonResponse(
+      { error: 'Photo text reading is temporarily rate limited. Try again later.' },
+      429,
+      { 'Retry-After': '900' }
+    );
+  }
+
+  const reader = request.body?.getReader();
+  if (!reader) {
+    return jsonResponse({ error: 'The captured photo was empty. Take another photo.' }, 400);
+  }
   let image: Buffer;
   try {
-    image = Buffer.from(await request.arrayBuffer());
+    const chunks: Uint8Array[] = [];
+    let imageSize = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      imageSize += value.byteLength;
+      if (imageSize > MAX_IMAGE_BYTES) {
+        await reader.cancel();
+        return jsonResponse(
+          { error: 'Photo is too large. Retake it closer to the text.' },
+          413
+        );
+      }
+      chunks.push(value);
+    }
+    image = Buffer.concat(chunks, imageSize);
   } catch (error) {
     console.error('Could not read the OCR photo request:', error);
     return jsonResponse({ error: 'Could not read the uploaded photo.' }, 400);
+  } finally {
+    reader.releaseLock();
   }
   if (!image.length || image.length > MAX_IMAGE_BYTES) {
     return jsonResponse(

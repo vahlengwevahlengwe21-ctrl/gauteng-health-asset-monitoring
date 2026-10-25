@@ -26,6 +26,10 @@ type BreakdownRow = {
   book_value: number | string | null;
 } & RowDataPacket;
 
+type DimensionRow = BreakdownRow & {
+  dimension: string;
+};
+
 type FacilityBreakdownRow = {
   facility_name: string;
   district: string;
@@ -137,11 +141,7 @@ export async function GET(request: Request) {
   try {
     const [
       [summaryRows],
-      [statusRows],
-      [categoryRows],
-      [conditionRows],
-      [districtRows],
-      [subDistrictRows],
+      [dimensionRows],
       [facilityRows],
       [acquisitionRows],
     ] = await Promise.all([
@@ -164,41 +164,32 @@ export async function GET(request: Request) {
         FROM health_assets ${whereSql}`,
         values
       ),
-      database.execute<BreakdownRow[]>(
-        `SELECT status AS label, COUNT(*) AS asset_count,
-          COALESCE(SUM(value), 0) AS book_value
-        FROM health_assets ${whereSql}
-        GROUP BY status ORDER BY asset_count DESC, status`,
-        values
-      ),
-      database.execute<BreakdownRow[]>(
-        `SELECT COALESCE(NULLIF(TRIM(category), ''), 'Uncategorized') AS label,
+      database.execute<DimensionRow[]>(
+        `WITH filtered_assets AS (
+          SELECT status, category, \`condition\`, district, sub_district, value
+          FROM health_assets ${whereSql}
+        )
+        SELECT 'status' AS dimension, status AS label,
           COUNT(*) AS asset_count, COALESCE(SUM(value), 0) AS book_value
-        FROM health_assets ${whereSql}
+        FROM filtered_assets GROUP BY status
+        UNION ALL
+        SELECT 'category', COALESCE(NULLIF(TRIM(category), ''), 'Uncategorized'),
+          COUNT(*), COALESCE(SUM(value), 0)
+        FROM filtered_assets
         GROUP BY COALESCE(NULLIF(TRIM(category), ''), 'Uncategorized')
-        ORDER BY asset_count DESC, label`,
-        values
-      ),
-      database.execute<BreakdownRow[]>(
-        `SELECT \`condition\` AS label, COUNT(*) AS asset_count,
-          COALESCE(SUM(value), 0) AS book_value
-        FROM health_assets ${whereSql}
-        GROUP BY \`condition\` ORDER BY asset_count DESC, label`,
-        values
-      ),
-      database.execute<BreakdownRow[]>(
-        `SELECT district AS label, COUNT(*) AS asset_count,
-          COALESCE(SUM(value), 0) AS book_value
-        FROM health_assets ${whereSql}
-        GROUP BY district ORDER BY asset_count DESC, label`,
-        values
-      ),
-      database.execute<BreakdownRow[]>(
-        `SELECT COALESCE(NULLIF(TRIM(sub_district), ''), 'Unassigned') AS label,
-          COUNT(*) AS asset_count, COALESCE(SUM(value), 0) AS book_value
-        FROM health_assets ${whereSql}
+        UNION ALL
+        SELECT 'condition', \`condition\`, COUNT(*), COALESCE(SUM(value), 0)
+        FROM filtered_assets GROUP BY \`condition\`
+        UNION ALL
+        SELECT 'district', district, COUNT(*), COALESCE(SUM(value), 0)
+        FROM filtered_assets GROUP BY district
+        UNION ALL
+        SELECT 'subDistrict',
+          COALESCE(NULLIF(TRIM(sub_district), ''), 'Unassigned'),
+          COUNT(*), COALESCE(SUM(value), 0)
+        FROM filtered_assets
         GROUP BY COALESCE(NULLIF(TRIM(sub_district), ''), 'Unassigned')
-        ORDER BY asset_count DESC, label`,
+        ORDER BY dimension, asset_count DESC, label`,
         values
       ),
       database.execute<FacilityBreakdownRow[]>(
@@ -238,6 +229,12 @@ export async function GET(request: Request) {
         assetCount: Number(row.asset_count),
         bookValue: numeric(row.book_value),
       }));
+    const breakdowns = new Map<string, BreakdownRow[]>();
+    for (const { dimension, ...row } of dimensionRows) {
+      const rows = breakdowns.get(dimension) ?? [];
+      rows.push(row);
+      breakdowns.set(dimension, rows);
+    }
 
     return NextResponse.json(
       {
@@ -255,11 +252,11 @@ export async function GET(request: Request) {
           verificationDue: Number(summary.verification_due),
           custodians: Number(summary.custodians),
         },
-        status: normalizeBreakdown(statusRows),
-        categories: normalizeBreakdown(categoryRows),
-        conditions: normalizeBreakdown(conditionRows),
-        districts: normalizeBreakdown(districtRows),
-        subDistricts: normalizeBreakdown(subDistrictRows),
+        status: normalizeBreakdown(breakdowns.get('status') ?? []),
+        categories: normalizeBreakdown(breakdowns.get('category') ?? []),
+        conditions: normalizeBreakdown(breakdowns.get('condition') ?? []),
+        districts: normalizeBreakdown(breakdowns.get('district') ?? []),
+        subDistricts: normalizeBreakdown(breakdowns.get('subDistrict') ?? []),
         facilities: facilityRows.map((row) => ({
           facilityName: row.facility_name,
           district: row.district,
