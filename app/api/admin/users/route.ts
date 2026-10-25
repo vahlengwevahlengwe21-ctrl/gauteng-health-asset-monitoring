@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       `INSERT INTO app_users (
         id, display_name, surname, persal_number, district, email,
         contact_number, password_hash, role, last_login_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       [
         randomUUID(),
         profile.display_name,

@@ -114,8 +114,8 @@ export async function authenticateRequest(
   const [rows] = await getDbPool().execute<SessionRow[]>(
     `SELECT u.id, u.display_name, u.surname, u.persal_number, u.email,
       u.contact_number, u.district, u.role,
-      CASE WHEN u.role <> 'super_administrator' AND (
-        u.last_login_at IS NULL OR
+      CASE WHEN u.last_login_at IS NULL OR (
+        u.role <> 'super_administrator' AND
         u.last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
       ) THEN TRUE ELSE FALSE END AS password_reset_required
     FROM app_sessions s
@@ -284,8 +284,8 @@ export async function verifyLoginCredentials(
       `SELECT id, display_name, surname, persal_number, email,
         contact_number, district, password_hash, role, is_active,
         failed_login_attempts, locked_until,
-        CASE WHEN role <> 'super_administrator' AND (
-          last_login_at IS NULL OR
+        CASE WHEN last_login_at IS NULL OR (
+          role <> 'super_administrator' AND
           last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
         ) THEN TRUE ELSE FALSE END AS password_reset_required
       FROM app_users WHERE persal_number = ? FOR UPDATE`,
@@ -359,8 +359,8 @@ export async function resetInactiveUserPassword(
       } & RowDataPacket)[]
     >(
       `SELECT id, password_hash, is_active, role,
-        CASE WHEN role <> 'super_administrator' AND (
-          last_login_at IS NULL OR
+        CASE WHEN last_login_at IS NULL OR (
+          role <> 'super_administrator' AND
           last_login_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
         ) THEN TRUE ELSE FALSE END AS password_reset_required
       FROM app_users WHERE persal_number = ? FOR UPDATE`,

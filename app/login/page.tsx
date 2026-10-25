@@ -85,7 +85,7 @@ export default function LoginPage() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {passwordResetRequired
-              ? 'Verify your current password and set a new one to continue.'
+              ? 'Your temporary password must be replaced before you can continue.'
               : 'Authorized personnel sign in to continue.'}
           </p>
         </div>
@@ -129,7 +129,7 @@ export default function LoginPage() {
           {passwordResetRequired && (
             <>
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
-                Your account has been inactive for at least seven days. Set a new password to continue.
+                Enter your temporary password above, then create a new password to continue.
               </div>
               <div className="space-y-2">
                 <Label htmlFor="new_password">New password</Label>

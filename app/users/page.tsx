@@ -47,6 +47,12 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const [temporaryPassword, setTemporaryPassword] = useState<{
+    userId: string;
+    value: string;
+  } | null>(null);
+  const [resettingPassword, setResettingPassword] = useState(false);
   const [profileDraft, setProfileDraft] = useState({
     display_name: '',
     surname: '',
@@ -244,6 +250,53 @@ export default function UsersPage() {
     }
   };
 
+  const resetUserPassword = async (user: ManagedUser) => {
+    if (
+      !window.confirm(
+        `Reset the password for ${user.display_name} ${user.surname || ''}? Their current sessions will be signed out.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setMessage(null);
+    setTemporaryPassword(null);
+    setResettingUserId(user.id);
+    setResettingPassword(true);
+    try {
+      const response = await fetch(
+        `/api/admin/users/${encodeURIComponent(user.id)}/reset-password`,
+        { method: 'POST' }
+      );
+      const result = (await response.json()) as {
+        error?: string;
+        temporaryPassword?: string;
+      };
+      if (!response.ok || !result.temporaryPassword) {
+        throw new Error(result.error || 'Unable to reset the user password.');
+      }
+      setTemporaryPassword({ userId: user.id, value: result.temporaryPassword });
+      setMessage(
+        'Password reset. Share the temporary password securely; the user must replace it at their next sign-in.'
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to reset the user password.');
+    } finally {
+      setResettingPassword(false);
+      setResettingUserId(null);
+    }
+  };
+
+  const copyTemporaryPassword = async () => {
+    if (!temporaryPassword) return;
+    try {
+      await navigator.clipboard.writeText(temporaryPassword.value);
+      setMessage('Temporary password copied. Share it securely with the user.');
+    } catch {
+      setError('Unable to copy the temporary password. Select and copy it manually.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -339,7 +392,7 @@ export default function UsersPage() {
                 maxLength={128}
               />
               <p className="text-xs text-muted-foreground">
-                Use at least 12 characters and share it securely.
+                Use at least 12 characters and share it securely. The user will be required to set a new password at first sign-in.
               </p>
             </div>
             <div className="space-y-2">
@@ -434,6 +487,18 @@ export default function UsersPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
+                    {isSuperAdministrator && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => resetUserPassword(user)}
+                        disabled={resettingPassword}
+                      >
+                        {resettingUserId === user.id
+                          ? 'Resetting…'
+                          : 'Reset password'}
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -500,6 +565,36 @@ export default function UsersPage() {
                       {user.is_active ? 'Deactivate' : 'Reactivate'}
                     </Button>
                   </div>
+                  {temporaryPassword?.userId === user.id && (
+                    <div className="grid gap-3 rounded-md border border-warning/40 bg-warning/10 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+                      <div className="space-y-2">
+                        <Label htmlFor={`temporary-password-${user.id}`}>
+                          One-time temporary password
+                        </Label>
+                        <Input
+                          id={`temporary-password-${user.id}`}
+                          value={temporaryPassword.value}
+                          readOnly
+                          onFocus={(event) => event.currentTarget.select()}
+                          className="font-mono"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          This is shown only now. Give it to the user securely;
+                          their next sign-in will require a new password.
+                        </p>
+                      </div>
+                      <Button type="button" variant="outline" onClick={copyTemporaryPassword}>
+                        Copy temporary password
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setTemporaryPassword(null)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  )}
                   {editingUserId === user.id && (
                     <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-4 sm:grid-cols-2">
                       <div className="space-y-2">
