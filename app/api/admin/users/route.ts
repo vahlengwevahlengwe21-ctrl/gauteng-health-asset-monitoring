@@ -34,7 +34,10 @@ export async function GET(request: Request) {
       `SELECT id, display_name, surname, persal_number, email,
         contact_number, district,
         role, is_active, is_protected, failed_login_attempts,
-        (locked_until IS NOT NULL) AS is_locked, created_at
+        (
+          locked_until IS NOT NULL AND
+          role NOT IN ('super_administrator', 'system_administrator')
+        ) AS is_locked, created_at
       FROM app_users
       WHERE is_protected = FALSE AND role <> 'super_administrator'
       ORDER BY display_name`
