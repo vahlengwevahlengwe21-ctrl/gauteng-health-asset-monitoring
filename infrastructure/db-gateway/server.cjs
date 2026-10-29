@@ -7,10 +7,10 @@ const { timingSafeEqual } = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 
 function createGatewayServer({
-  host = process.env.GATEWAY_HOST || '172.17.0.1',
+  host = process.env.GATEWAY_HOST || '127.0.0.1',
   port = Number(process.env.GATEWAY_PORT || 8790),
   token,
-  databaseHost = process.env.DB_TARGET_HOST || '10.10.99.10',
+  databaseHost = process.env.DB_TARGET_HOST || '127.0.0.1',
   databasePort = Number(process.env.DB_TARGET_PORT || 3306),
   maxConnections = Number(process.env.GATEWAY_MAX_CONNECTIONS || 50),
 } = {}) {
@@ -146,7 +146,7 @@ if (require.main === module) {
     process.exit(1);
   }
   const { server } = createGatewayServer();
-  server.listen(port, process.env.GATEWAY_HOST || '172.17.0.1');
+  server.listen(port, process.env.GATEWAY_HOST || '127.0.0.1');
   server.on('listening', () => {
     console.log('Gauteng database gateway is listening.');
   });

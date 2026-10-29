@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=gauteng-db-gateway
 Group=gauteng-db-gateway
-Environment=GATEWAY_HOST=172.17.0.1
+Environment=GATEWAY_HOST=127.0.0.1
 Environment=GATEWAY_PORT=8790
-Environment=DB_TARGET_HOST=10.10.99.10
+Environment=DB_TARGET_HOST=127.0.0.1
 Environment=DB_TARGET_PORT=3306
 Environment=GATEWAY_TOKEN_FILE=/etc/gauteng-db-gateway.token
 ExecStart=/usr/bin/node /opt/gauteng-db-gateway/server.cjs
@@ -29,3 +29,4 @@ UMask=0077
 
 [Install]
 WantedBy=multi-user.target
+]
